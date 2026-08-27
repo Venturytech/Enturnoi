@@ -29,7 +29,7 @@ export default async function DashboardPage() {
         style={{ borderBottom: `1px solid ${theme.divider}` }}
       >
         <span className="font-display text-base" style={{ color: theme.textPrimary }}>
-          {business?.name ?? "EnTurno"}
+          {business?.name ?? "EnTurnoApp"}
         </span>
         <form action={signOut}>
           <button

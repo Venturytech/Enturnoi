@@ -12,7 +12,7 @@ export default function Home() {
     >
       <div>
         <h1 className="font-display text-4xl mb-3" style={{ color: theme.textPrimary }}>
-          EnTurno
+          EnTurnoApp
         </h1>
         <p className="font-body text-sm mb-7" style={{ color: theme.textMuted }}>
           Reservas para barberías y salones
