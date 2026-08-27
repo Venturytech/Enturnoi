@@ -2,13 +2,12 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Clases de tipografía que usan los prototipos, ahora atadas a
-   las fuentes cargadas en el layout con next/font. */
+/* Tipografía de los prototipos. Las fuentes se cargan con <link> en el layout. */
 .font-display {
-  font-family: var(--font-fraunces), serif;
+  font-family: "Fraunces", serif;
 }
 .font-body {
-  font-family: var(--font-inter), sans-serif;
+  font-family: "Inter", sans-serif;
 }
 
 html,
