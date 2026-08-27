@@ -1,8 +1,33 @@
 -- =============================================================
 -- Enturnoi · Instalación completa de la base de datos
 -- Pega TODO este archivo en el SQL Editor de Supabase y dale RUN.
--- Contiene: esquema + seguridad (RLS) + catálogo de servicios.
+-- Es SEGURO ejecutarlo varias veces: primero limpia y luego crea.
+-- Contiene: reset + esquema + seguridad (RLS) + catálogo de servicios.
 -- =============================================================
+
+-- Reset: borra objetos previos si existen (proyecto nuevo, sin datos reales)
+drop trigger if exists on_auth_user_created on auth.users;
+drop function if exists public.handle_new_user() cascade;
+drop function if exists public.is_platform_admin() cascade;
+drop function if exists public.owns_business(uuid) cascade;
+drop function if exists public.get_business_by_slug(text) cascade;
+drop function if exists public.register_client(text, text, text) cascade;
+
+drop table if exists staff_availability cascade;
+drop table if exists appointments cascade;
+drop table if exists client_business cascade;
+drop table if exists clients cascade;
+drop table if exists business_services cascade;
+drop table if exists services_catalog cascade;
+drop table if exists staff cascade;
+drop table if exists businesses cascade;
+drop table if exists profiles cascade;
+
+drop type if exists appointment_status cascade;
+drop type if exists platform_role cascade;
+drop type if exists business_status cascade;
+drop type if exists business_type cascade;
+
 
 -- =============================================================
 -- Enturnoi · Esquema base (Fase 1)
