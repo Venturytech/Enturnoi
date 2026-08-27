@@ -1,9 +1,8 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
-import { getTheme } from "@/lib/theme";
+import type { BusinessType } from "@/lib/theme";
+import OnboardingForm, { type CatalogItem } from "@/components/OnboardingForm";
 
-// Placeholder: la pantalla real "Crear negocio" (CreateBusiness) se migra
-// en el siguiente paso. Por ahora protege la ruta y confirma la sesión.
 export default async function OnboardingPage() {
   const supabase = createClient();
   const {
@@ -12,21 +11,29 @@ export default async function OnboardingPage() {
 
   if (!user) redirect("/login");
 
-  const theme = getTheme("barber");
+  // Si ya tiene negocio, va directo al panel.
+  const { data: existing } = await supabase
+    .from("businesses")
+    .select("id")
+    .eq("owner_id", user.id)
+    .maybeSingle();
+  if (existing) redirect("/dashboard");
+
+  const businessType: BusinessType =
+    user.user_metadata?.business_type === "salon" ? "salon" : "barber";
+
+  // Catálogo global del tipo de negocio, agrupado luego en el formulario.
+  const { data: catalog } = await supabase
+    .from("services_catalog")
+    .select("id, category, name")
+    .eq("type", businessType)
+    .order("category", { ascending: true })
+    .order("name", { ascending: true });
 
   return (
-    <main
-      className="min-h-screen w-full flex items-center justify-center px-6 text-center"
-      style={{ background: theme.pageBg }}
-    >
-      <div>
-        <h1 className="font-display text-2xl mb-2" style={{ color: theme.textPrimary }}>
-          Crear negocio
-        </h1>
-        <p className="font-body text-sm" style={{ color: theme.textMuted }}>
-          Esta pantalla se conecta en el próximo paso.
-        </p>
-      </div>
-    </main>
+    <OnboardingForm
+      businessType={businessType}
+      catalog={(catalog ?? []) as CatalogItem[]}
+    />
   );
 }
