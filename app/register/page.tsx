@@ -27,23 +27,32 @@ export default function RegisterPage() {
     setError(null);
     setInfo(null);
     setLoading(true);
-    const supabase = createClient();
-    const { data, error } = await supabase.auth.signUp({
-      email,
-      password: pass,
-      options: { data: { full_name: fullName, business_type: businessType } },
-    });
-    setLoading(false);
-    if (error) {
-      setError(error.message);
-      return;
-    }
-    // Si la confirmación por correo está desactivada, ya hay sesión → onboarding.
-    if (data.session) {
-      router.push("/onboarding");
-      router.refresh();
-    } else {
-      setInfo("Cuenta creada. Revisa tu correo para confirmarla y luego inicia sesión.");
+    try {
+      const supabase = createClient();
+      const { data, error } = await supabase.auth.signUp({
+        email,
+        password: pass,
+        options: { data: { full_name: fullName, business_type: businessType } },
+      });
+      if (error) {
+        setError(
+          error.message.toLowerCase().includes("already registered")
+            ? "Ese correo ya tiene una cuenta. Inicia sesión."
+            : error.message,
+        );
+        return;
+      }
+      // Si la confirmación por correo está desactivada, ya hay sesión → onboarding.
+      if (data.session) {
+        router.push("/onboarding");
+        router.refresh();
+      } else {
+        setInfo("Cuenta creada. Revisa tu correo para confirmarla y luego inicia sesión.");
+      }
+    } catch {
+      setError("No se pudo conectar con el servidor. Intenta de nuevo.");
+    } finally {
+      setLoading(false);
     }
   };
 

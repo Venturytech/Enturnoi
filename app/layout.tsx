@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Enturnoi",
+  title: "EnTurno",
   description: "Reservas para barberías y salones",
 };
 

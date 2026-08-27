@@ -24,15 +24,24 @@ export default function LoginPage() {
     e.preventDefault();
     setError(null);
     setLoading(true);
-    const supabase = createClient();
-    const { error } = await supabase.auth.signInWithPassword({ email, password: pass });
-    setLoading(false);
-    if (error) {
-      setError("Correo o contraseña incorrectos.");
-      return;
+    try {
+      const supabase = createClient();
+      const { error } = await supabase.auth.signInWithPassword({ email, password: pass });
+      if (error) {
+        setError(
+          error.message.toLowerCase().includes("email not confirmed")
+            ? "Tu cuenta aún no está confirmada. Revisa tu correo."
+            : "Correo o contraseña incorrectos.",
+        );
+        return;
+      }
+      router.push("/dashboard");
+      router.refresh();
+    } catch {
+      setError("No se pudo conectar con el servidor. Intenta de nuevo.");
+    } finally {
+      setLoading(false);
     }
-    router.push("/dashboard");
-    router.refresh();
   };
 
   return (
