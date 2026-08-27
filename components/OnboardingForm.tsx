@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Upload, Plus, Minus, Check, ArrowRight, ChevronDown } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
@@ -54,6 +54,16 @@ export default function OnboardingForm({
   );
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [logoFile, setLogoFile] = useState<File | null>(null);
+  const [logoPreview, setLogoPreview] = useState<string | null>(null);
+  const fileInput = useRef<HTMLInputElement>(null);
+
+  const onPickLogo = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setLogoFile(file);
+    setLogoPreview(URL.createObjectURL(file));
+  };
 
   const toggleItem = (id: string) => {
     const next = new Set(selected);
@@ -105,6 +115,19 @@ export default function OnboardingForm({
         return;
       }
 
+      // Sube el logo (si hay) al bucket público y guarda su URL en el negocio.
+      if (logoFile) {
+        const ext = logoFile.name.split(".").pop()?.toLowerCase() || "png";
+        const path = `${business.id}/logo.${ext}`;
+        const { error: upErr } = await supabase.storage
+          .from("logos")
+          .upload(path, logoFile, { upsert: true, contentType: logoFile.type });
+        if (!upErr) {
+          const { data: pub } = supabase.storage.from("logos").getPublicUrl(path);
+          await supabase.from("businesses").update({ logo_url: pub.publicUrl }).eq("id", business.id);
+        }
+      }
+
       const rows = Array.from(selected).map((catalogId) => ({
         business_id: business.id,
         catalog_service_id: catalogId,
@@ -151,15 +174,35 @@ export default function OnboardingForm({
           <label className="font-body text-xs font-medium tracking-wide" style={{ color: theme.labelColor }}>
             LOGO DEL NEGOCIO
           </label>
-          <div
-            className="mt-2 mb-6 rounded-xl flex flex-col items-center justify-center py-6"
+          <input
+            ref={fileInput}
+            type="file"
+            accept="image/png, image/jpeg, image/webp"
+            onChange={onPickLogo}
+            className="hidden"
+          />
+          <button
+            type="button"
+            onClick={() => fileInput.current?.click()}
+            className="mt-2 mb-6 w-full rounded-xl flex flex-col items-center justify-center py-6 overflow-hidden"
             style={{ background: theme.inputBg, border: `1px dashed ${theme.inputBorder}` }}
           >
-            <Upload className="w-5 h-5 mb-2" style={{ color: theme.textMuted }} />
-            <span className="font-body text-xs" style={{ color: theme.textMuted }}>
-              Subir imagen (próximamente)
-            </span>
-          </div>
+            {logoPreview ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={logoPreview}
+                alt="Vista previa del logo"
+                className="w-20 h-20 rounded-xl object-cover"
+              />
+            ) : (
+              <>
+                <Upload className="w-5 h-5 mb-2" style={{ color: theme.textMuted }} />
+                <span className="font-body text-xs" style={{ color: theme.textMuted }}>
+                  Subir imagen (PNG o JPG)
+                </span>
+              </>
+            )}
+          </button>
 
           <div className="mb-5">
             <label className="font-body text-xs font-medium tracking-wide" style={{ color: theme.labelColor }}>
