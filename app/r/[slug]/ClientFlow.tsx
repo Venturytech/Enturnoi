@@ -13,6 +13,7 @@ type Staff = { id: string; name: string; specialty: string | null };
 type ServiceOption = { business_service_id: string; service_name: string; price: number; duration_minutes: number };
 type QueueInfo = { staff_id: string; present_count: number; scheduled_count: number; total_minutes: number };
 type Identity = { clientId: string; name: string; phone: string };
+type Summary = { kind: "future" | "walkin"; date?: string; time?: string; staff: string; service: string; price: number };
 
 const STORAGE_PREFIX = "enturnoi:client:";
 
@@ -72,12 +73,12 @@ export default function ClientFlow({ slug, business }: { slug: string; business:
   const [identity, setIdentityState] = useState<Identity | null>(null);
   const [stored, setStored] = useState<Identity | null>(null);
   const [checkedStorage, setCheckedStorage] = useState(false);
-  const [view, setView] = useState<"list" | "detail" | "schedule" | "confirmed">("list");
+  const [view, setView] = useState<"list" | "detail" | "schedule" | "walkin" | "confirmed">("list");
   const [staff, setStaff] = useState<Staff[]>([]);
   const [services, setServices] = useState<ServiceOption[]>([]);
   const [queue, setQueue] = useState<Record<string, QueueInfo>>({});
   const [selectedStaff, setSelectedStaff] = useState<Staff | null>(null);
-  const [lastConfirmed, setLastConfirmed] = useState<{ date: string; time: string; staff: string; service: string; price: number } | null>(null);
+  const [lastConfirmed, setLastConfirmed] = useState<Summary | null>(null);
 
   useEffect(() => {
     setStored(getIdentity(slug));
@@ -138,6 +139,21 @@ export default function ClientFlow({ slug, business }: { slug: string; business:
             info={queue[selectedStaff.id]}
             onBack={() => setView("list")}
             onSchedule={() => setView("schedule")}
+            onWalkin={() => setView("walkin")}
+          />
+        )}
+        {view === "walkin" && selectedStaff && (
+          <WalkinFlow
+            theme={theme}
+            staffMember={selectedStaff}
+            services={services}
+            slug={slug}
+            clientId={identity.clientId}
+            onBack={() => setView("detail")}
+            onDone={(summary) => {
+              setLastConfirmed(summary);
+              setView("confirmed");
+            }}
           />
         )}
         {view === "schedule" && (
@@ -150,7 +166,7 @@ export default function ClientFlow({ slug, business }: { slug: string; business:
             clientId={identity.clientId}
             onBack={() => setView(selectedStaff ? "detail" : "list")}
             onDone={(summary) => {
-              setLastConfirmed(summary);
+              setLastConfirmed({ kind: "future", ...summary });
               setSelectedStaff(null);
               setView("confirmed");
             }}
@@ -565,13 +581,14 @@ function BarberList({
 }
 
 function QueueDetail({
-  theme, staffMember, info, onBack, onSchedule,
+  theme, staffMember, info, onBack, onSchedule, onWalkin,
 }: {
   theme: ReturnType<typeof getTheme>;
   staffMember: Staff;
   info: QueueInfo | undefined;
   onBack: () => void;
   onSchedule: () => void;
+  onWalkin: () => void;
 }) {
   const present = info?.present_count ?? 0;
   const scheduled = info?.scheduled_count ?? 0;
@@ -634,8 +651,13 @@ function QueueDetail({
         </div>
       )}
 
-      <button onClick={onSchedule} className="font-body w-full flex items-center justify-center gap-2 py-3.5 rounded-xl font-semibold mt-4" style={{ background: `linear-gradient(135deg, ${theme.accentFrom}, ${theme.accentTo})`, color: theme.buttonText }}>
-        Agendar con {staffMember.name.split(" ")[0]}
+      <button onClick={onWalkin} className="font-body w-full flex items-center justify-center gap-2 py-3.5 rounded-xl font-semibold mt-4" style={{ background: `linear-gradient(135deg, ${theme.accentFrom}, ${theme.accentTo})`, color: theme.buttonText }}>
+        <Users className="w-4 h-4" />
+        Ponerme en la cola ahora
+      </button>
+      <button onClick={onSchedule} className="font-body w-full flex items-center justify-center gap-2 py-3.5 rounded-xl font-semibold mt-3" style={{ background: theme.chipBg, color: theme.accentRing, border: `1px solid ${theme.cardBorder}` }}>
+        <CalendarDays className="w-4 h-4" />
+        Agendar cita futura
       </button>
     </>
   );
@@ -663,7 +685,8 @@ function ScheduleFuture({
   const [staffMember, setStaffMember] = useState<Staff | null>(preselectedStaff);
   const [time, setTime] = useState<string | null>(null);
   const [service, setService] = useState<ServiceOption | null>(null);
-  const [availableSlots, setAvailableSlots] = useState<string[]>([]);
+  const [blockedSet, setBlockedSet] = useState<Set<string>>(new Set());
+  const [takenSet, setTakenSet] = useState<Set<string>>(new Set());
   const [loadingSlots, setLoadingSlots] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -677,10 +700,8 @@ function ScheduleFuture({
       supabase.rpc("get_staff_blocked_slots", { p_staff_id: staffMember.id, p_date: date.key }),
       supabase.rpc("get_staff_appointments_for_day", { p_staff_id: staffMember.id, p_date: date.key }),
     ]).then(([blockedRes, apptRes]) => {
-      const blocked = new Set<string>(blockedRes.data ?? []);
-      const taken = new Set<string>((apptRes.data ?? []).map((a: any) => a.appt_time.slice(0, 5)));
-      const free = TIME_SLOTS.filter((slot) => !blocked.has(slot) && !taken.has(slotTo24(slot).slice(0, 5)));
-      setAvailableSlots(free);
+      setBlockedSet(new Set<string>(blockedRes.data ?? []));
+      setTakenSet(new Set<string>((apptRes.data ?? []).map((a: any) => a.appt_time.slice(0, 5))));
       setLoadingSlots(false);
     });
   }, [step, staffMember, date]);
@@ -779,21 +800,55 @@ function ScheduleFuture({
         <>
           <h1 className="font-display text-2xl mb-1" style={{ color: theme.textPrimary }}>¿A qué hora?</h1>
           <p className="font-body text-sm mb-5" style={{ color: theme.textMuted }}>{date.label}, {date.num} · con {staffMember.name.split(" ")[0]}</p>
-          {loadingSlots ? (
-            <p className="font-body text-sm" style={{ color: theme.textMuted }}>Buscando horarios...</p>
-          ) : availableSlots.length === 0 ? (
-            <div className="rounded-2xl p-6 text-center" style={{ background: theme.cardBg, border: `1px solid ${theme.cardBorder}` }}>
-              <p className="font-body text-sm" style={{ color: theme.textMuted }}>No hay horarios libres ese día. Prueba otra fecha.</p>
-            </div>
-          ) : (
-            <div className="grid grid-cols-3 gap-2">
-              {availableSlots.map((slot) => (
-                <button key={slot} onClick={() => pickTime(slot)} className="font-body text-sm font-medium py-3.5 rounded-lg" style={{ background: theme.chipBg, color: theme.accentRing }}>
-                  {slot}
-                </button>
-              ))}
-            </div>
-          )}
+          {(() => {
+            const todayKey = new Date().toISOString().slice(0, 10);
+            const isToday = date.key === todayKey;
+            const nowMin = new Date().getHours() * 60 + new Date().getMinutes();
+            const slotMin = (slot: string) => {
+              const [h, m] = slotTo24(slot).split(":").map(Number);
+              return h * 60 + m;
+            };
+            const isDisabled = (slot: string) =>
+              blockedSet.has(slot) ||
+              takenSet.has(slotTo24(slot).slice(0, 5)) ||
+              (isToday && slotMin(slot) <= nowMin);
+            const anyFree = TIME_SLOTS.some((s) => !isDisabled(s));
+
+            if (loadingSlots) {
+              return <p className="font-body text-sm" style={{ color: theme.textMuted }}>Buscando horarios...</p>;
+            }
+            if (!anyFree) {
+              return (
+                <div className="rounded-2xl p-6 text-center" style={{ background: theme.cardBg, border: `1px solid ${theme.cardBorder}` }}>
+                  <p className="font-body text-sm" style={{ color: theme.textMuted }}>No hay horarios libres ese día. Prueba otra fecha.</p>
+                </div>
+              );
+            }
+            return (
+              <div className="grid grid-cols-3 gap-2">
+                {TIME_SLOTS.map((slot) => {
+                  const disabled = isDisabled(slot);
+                  return (
+                    <button
+                      key={slot}
+                      disabled={disabled}
+                      onClick={() => !disabled && pickTime(slot)}
+                      className="font-body text-sm font-medium py-3.5 rounded-lg"
+                      style={{
+                        background: disabled ? theme.inputBg : theme.chipBg,
+                        color: disabled ? theme.textMuted : theme.accentRing,
+                        textDecoration: disabled ? "line-through" : "none",
+                        opacity: disabled ? 0.45 : 1,
+                        cursor: disabled ? "not-allowed" : "pointer",
+                      }}
+                    >
+                      {slot}
+                    </button>
+                  );
+                })}
+              </div>
+            );
+          })()}
         </>
       )}
 
@@ -838,6 +893,88 @@ function ScheduleFuture({
   );
 }
 
+// ---------------------------------------------------------------
+// Ponerse en la cola AHORA (walk-in): elige servicio y entra de último.
+// ---------------------------------------------------------------
+function WalkinFlow({
+  theme, staffMember, services, slug, clientId, onBack, onDone,
+}: {
+  theme: ReturnType<typeof getTheme>;
+  staffMember: Staff;
+  services: ServiceOption[];
+  slug: string;
+  clientId: string;
+  onBack: () => void;
+  onDone: (summary: Summary) => void;
+}) {
+  const supabase = createClient();
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function join(service: ServiceOption) {
+    setSubmitting(true);
+    setError(null);
+    const { data, error } = await supabase.rpc("queue_join_walkin", {
+      p_slug: slug,
+      p_staff_id: staffMember.id,
+      p_client_id: clientId,
+      p_business_service_id: service.business_service_id,
+    });
+    setSubmitting(false);
+    if (error || !data) {
+      setError("No se pudo poner en la cola, intenta de nuevo.");
+      return;
+    }
+    onDone({ kind: "walkin", staff: staffMember.name, service: service.service_name, price: service.price });
+  }
+
+  return (
+    <>
+      <button
+        onClick={onBack}
+        className="font-body inline-flex items-center gap-1.5 text-sm font-medium mb-4 px-3 py-1.5 rounded-full"
+        style={{ color: theme.accentRing, border: `1px solid ${theme.accentRing}` }}
+      >
+        <ChevronLeft className="w-4 h-4" />
+        Atrás
+      </button>
+
+      <h1 className="font-display text-2xl mb-1" style={{ color: theme.textPrimary }}>Ponerte en la cola</h1>
+      <p className="font-body text-sm mb-5" style={{ color: theme.textMuted }}>
+        Con {staffMember.name.split(" ")[0]} · elige tu servicio y quedas de último en la cola.
+      </p>
+
+      {error && <p className="font-body text-xs mb-4" style={{ color: "#F19391" }}>{error}</p>}
+
+      <div className="space-y-2">
+        {services.map((s) => (
+          <button
+            key={s.business_service_id}
+            disabled={submitting}
+            onClick={() => join(s)}
+            className="w-full rounded-xl p-3.5 flex items-center gap-3 text-left disabled:opacity-50"
+            style={{ background: theme.cardBg, border: `1px solid ${theme.cardBorder}` }}
+          >
+            <div className="flex-1">
+              <p className="font-body text-sm font-medium" style={{ color: theme.textPrimary }}>{s.service_name}</p>
+              <div className="flex items-center gap-1 mt-0.5">
+                <Clock className="w-3 h-3" style={{ color: theme.textMuted }} />
+                <span className="font-body text-xs" style={{ color: theme.textMuted }}>~{s.duration_minutes} min</span>
+              </div>
+            </div>
+            <span className="font-display text-base" style={{ color: theme.accentRing }}>RD${s.price}</span>
+          </button>
+        ))}
+        {services.length === 0 && (
+          <div className="rounded-2xl p-6 text-center" style={{ background: theme.cardBg, border: `1px solid ${theme.cardBorder}` }}>
+            <p className="font-body text-sm" style={{ color: theme.textMuted }}>Este negocio aún no tiene servicios configurados.</p>
+          </div>
+        )}
+      </div>
+    </>
+  );
+}
+
 function Row({ label, value, theme, bold }: { label: string; value: string; theme: ReturnType<typeof getTheme>; bold?: boolean }) {
   return (
     <div className="flex items-center justify-between">
@@ -851,21 +988,28 @@ function Confirmed({
   theme, summary, onBack,
 }: {
   theme: ReturnType<typeof getTheme>;
-  summary: { date: string; time: string; staff: string; service: string; price: number };
+  summary: Summary;
   onBack: () => void;
 }) {
+  const isWalkin = summary.kind === "walkin";
   return (
     <div className="text-center pt-6">
       <div className="w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-5" style={{ background: "rgba(63,191,127,0.16)" }}>
         <Check className="w-7 h-7" style={{ color: theme.green }} />
       </div>
-      <h1 className="font-display text-2xl mb-1" style={{ color: theme.textPrimary }}>¡Cita confirmada!</h1>
-      <p className="font-body text-sm mb-6" style={{ color: theme.textMuted }}>Te esperamos con {summary.staff.split(" ")[0]}.</p>
+      <h1 className="font-display text-2xl mb-1" style={{ color: theme.textPrimary }}>
+        {isWalkin ? "¡Estás en la cola!" : "¡Cita confirmada!"}
+      </h1>
+      <p className="font-body text-sm mb-6" style={{ color: theme.textMuted }}>
+        {isWalkin
+          ? `Quedaste en la cola de ${summary.staff.split(" ")[0]}. Te atienden por orden de llegada.`
+          : `Te esperamos con ${summary.staff.split(" ")[0]}.`}
+      </p>
       <div className="rounded-2xl p-5 space-y-3 mb-6 text-left" style={{ background: theme.cardBg, border: `1px solid ${theme.cardBorder}` }}>
         <Row label="Servicio" value={summary.service} theme={theme} />
         <Row label="Barbero" value={summary.staff} theme={theme} />
-        <Row label="Fecha" value={summary.date} theme={theme} />
-        <Row label="Hora" value={summary.time} theme={theme} />
+        {!isWalkin && summary.date && <Row label="Fecha" value={summary.date} theme={theme} />}
+        {!isWalkin && summary.time && <Row label="Hora" value={summary.time} theme={theme} />}
         <div className="h-px" style={{ background: theme.divider }} />
         <Row label="Total" value={`RD$${summary.price}`} theme={theme} bold />
       </div>
