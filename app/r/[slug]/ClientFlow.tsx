@@ -1,10 +1,9 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { useParams } from "next/navigation";
 import {
   Scissors, Flower2, ArrowRight, ShieldCheck, ChevronLeft, ChevronRight,
-  Clock, Users, CalendarDays, Check,
+  Clock, Users, CalendarDays, Check, Lock,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { getTheme, cardShadow, type BusinessType } from "@/lib/theme";
@@ -27,8 +26,11 @@ function getIdentity(slug: string): Identity | null {
     return null;
   }
 }
-function setIdentity(slug: string, identity: Identity) {
+function saveIdentity(slug: string, identity: Identity) {
   localStorage.setItem(STORAGE_PREFIX + slug, JSON.stringify(identity));
+}
+function forgetIdentity(slug: string) {
+  localStorage.removeItem(STORAGE_PREFIX + slug);
 }
 
 const TIME_SLOTS = [
@@ -68,6 +70,7 @@ export default function ClientFlow({ slug, business }: { slug: string; business:
   const isBarber = business.type === "barber";
 
   const [identity, setIdentityState] = useState<Identity | null>(null);
+  const [stored, setStored] = useState<Identity | null>(null);
   const [checkedStorage, setCheckedStorage] = useState(false);
   const [view, setView] = useState<"list" | "detail" | "schedule" | "confirmed">("list");
   const [staff, setStaff] = useState<Staff[]>([]);
@@ -77,7 +80,7 @@ export default function ClientFlow({ slug, business }: { slug: string; business:
   const [lastConfirmed, setLastConfirmed] = useState<{ date: string; time: string; staff: string; service: string; price: number } | null>(null);
 
   useEffect(() => {
-    setIdentityState(getIdentity(slug));
+    setStored(getIdentity(slug));
     setCheckedStorage(true);
   }, [slug]);
 
@@ -98,17 +101,24 @@ export default function ClientFlow({ slug, business }: { slug: string; business:
 
   if (!checkedStorage) return null;
 
+  // Puerta de acceso con PIN: registro la primera vez, luego solo PIN.
   if (!identity) {
     return (
-      <ClientSignup
+      <ClientGate
         theme={theme}
         isBarber={isBarber}
         business={business}
-        onDone={(idn) => {
-          setIdentity(slug, idn);
+        slug={slug}
+        stored={stored}
+        onAuthed={(idn) => {
+          saveIdentity(slug, idn);
+          setStored(idn);
           setIdentityState(idn);
         }}
-        slug={slug}
+        onForget={() => {
+          forgetIdentity(slug);
+          setStored(null);
+        }}
       />
     );
   }
@@ -172,41 +182,106 @@ export default function ClientFlow({ slug, business }: { slug: string; business:
 }
 
 // ---------------------------------------------------------------
-// Registro del cliente por el link (una sola vez; luego se reconoce
-// automáticamente por lo guardado en este dispositivo).
+// Puerta de acceso del cliente con PIN de 4 dígitos.
+//  - Dispositivo reconocido -> solo PIN (desbloquear).
+//  - Primera vez -> nombre + teléfono + PIN + confirmar.
+//  - Otro dispositivo / ya tengo cuenta -> teléfono + PIN.
+// Usa las RPC ya existentes: client_register, client_login,
+// client_join_business.
 // ---------------------------------------------------------------
-function ClientSignup({
-  theme, isBarber, business, slug, onDone,
+function ClientGate({
+  theme, isBarber, business, slug, stored, onAuthed, onForget,
 }: {
   theme: ReturnType<typeof getTheme>;
   isBarber: boolean;
   business: Business;
   slug: string;
-  onDone: (identity: Identity) => void;
+  stored: Identity | null;
+  onAuthed: (identity: Identity) => void;
+  onForget: () => void;
 }) {
   const supabase = createClient();
+  const [mode, setMode] = useState<"unlock" | "register" | "login">(stored ? "unlock" : "register");
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
+  const [pin, setPin] = useState("");
+  const [pin2, setPin2] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [showRecovery, setShowRecovery] = useState(false);
 
-  async function handleSubmit(e: React.FormEvent) {
+  const onlyDigits = (v: string, max: number) => v.replace(/\D/g, "").slice(0, max);
+
+  async function ensureJoined(clientId: string) {
+    await supabase.rpc("client_join_business", { p_client_id: clientId, p_slug: slug });
+  }
+
+  async function doUnlock(e: React.FormEvent) {
     e.preventDefault();
-    if (!name.trim() || !phone.trim()) return;
+    if (!stored) return;
+    if (pin.length !== 4) return setError("El PIN es de 4 dígitos.");
     setLoading(true);
     setError(null);
-    const { data, error } = await supabase.rpc("register_client", {
+    const { data, error } = await supabase.rpc("client_login", { p_phone: stored.phone, p_password: pin });
+    setLoading(false);
+    const row = data?.[0];
+    if (error || !row) {
+      setError("PIN incorrecto. Intenta de nuevo.");
+      return;
+    }
+    await ensureJoined(row.id);
+    onAuthed({ clientId: row.id, name: row.name, phone: stored.phone });
+  }
+
+  async function doRegister(e: React.FormEvent) {
+    e.preventDefault();
+    if (!name.trim() || !phone.trim()) return setError("Escribe tu nombre y tu número.");
+    if (pin.length !== 4) return setError("El PIN debe ser de 4 dígitos.");
+    if (pin !== pin2) return setError("Los PIN no coinciden.");
+    setLoading(true);
+    setError(null);
+    const { data, error } = await supabase.rpc("client_register", {
       p_slug: slug,
       p_name: name.trim(),
       p_phone: phone.trim(),
+      p_password: pin,
     });
     setLoading(false);
     if (error || !data) {
-      setError("No pudimos registrarte, intenta de nuevo.");
+      setError(
+        error?.message?.includes("ya tiene una cuenta")
+          ? "Ese número ya tiene cuenta. Entra con tu PIN."
+          : "No pudimos registrarte, intenta de nuevo.",
+      );
+      if (error?.message?.includes("ya tiene una cuenta")) {
+        setMode("login");
+        setPin("");
+        setPin2("");
+      }
       return;
     }
-    onDone({ clientId: data, name: name.trim(), phone: phone.trim() });
+    onAuthed({ clientId: data as string, name: name.trim(), phone: phone.trim() });
   }
+
+  async function doLogin(e: React.FormEvent) {
+    e.preventDefault();
+    if (!phone.trim()) return setError("Escribe tu número.");
+    if (pin.length !== 4) return setError("El PIN es de 4 dígitos.");
+    setLoading(true);
+    setError(null);
+    const { data, error } = await supabase.rpc("client_login", { p_phone: phone.trim(), p_password: pin });
+    setLoading(false);
+    const row = data?.[0];
+    if (error || !row) {
+      setError("Teléfono o PIN incorrectos.");
+      return;
+    }
+    await ensureJoined(row.id);
+    onAuthed({ clientId: row.id, name: row.name, phone: phone.trim() });
+  }
+
+  const inputStyle = { background: theme.inputBg, border: `1px solid ${theme.inputBorder}`, color: theme.textPrimary };
+  const pinInputClass = "font-display w-full mt-2 px-4 py-3 rounded-xl outline-none text-center text-2xl tracking-[0.5em]";
 
   return (
     <div className="min-h-screen w-full flex items-center justify-center px-4 py-10" style={{ background: theme.pageBg }}>
@@ -216,6 +291,7 @@ function ClientSignup({
         .font-body { font-family: 'Inter', sans-serif; }
       `}</style>
       <div className="w-full max-w-sm">
+        {/* Marca del negocio */}
         <div className="flex flex-col items-center text-center mb-8">
           <div className="w-20 h-20 rounded-3xl flex items-center justify-center mb-4 overflow-hidden" style={{ background: `linear-gradient(135deg, ${theme.accentFrom}, ${theme.accentTo})` }}>
             {business.logo_url ? (
@@ -232,46 +308,167 @@ function ClientSignup({
         </div>
 
         <div className="rounded-3xl p-6" style={{ background: theme.cardBg, border: `1px solid ${theme.cardBorder}`, boxShadow: cardShadow(business.type) }}>
-          <h2 className="font-display text-xl mb-1" style={{ color: theme.textPrimary }}>Reserva tu cita</h2>
-          <p className="font-body text-sm mb-6" style={{ color: theme.textMuted }}>{business.name} te invitó a agendar directo desde aquí.</p>
+          {/* ---------- DESBLOQUEAR (dispositivo reconocido) ---------- */}
+          {mode === "unlock" && stored && (
+            <form onSubmit={doUnlock}>
+              <h2 className="font-display text-xl mb-1" style={{ color: theme.textPrimary }}>
+                Hola de nuevo, {stored.name.split(" ")[0]}
+              </h2>
+              <p className="font-body text-sm mb-6" style={{ color: theme.textMuted }}>
+                Escribe tu PIN de 4 dígitos para entrar.
+              </p>
 
-          {error && <p className="font-body text-xs mb-4" style={{ color: "#F19391" }}>{error}</p>}
-
-          <form className="space-y-5" onSubmit={handleSubmit}>
-            <div>
-              <label className="font-body text-xs font-medium tracking-wide" style={{ color: theme.labelColor }}>NOMBRE COMPLETO</label>
+              <label className="font-body text-xs font-medium tracking-wide" style={{ color: theme.labelColor }}>PIN</label>
               <input
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                placeholder="Tu nombre y apellido"
-                className="font-body w-full mt-2 px-4 py-3 rounded-xl outline-none"
-                style={{ background: theme.inputBg, border: `1px solid ${theme.inputBorder}`, color: theme.textPrimary }}
+                inputMode="numeric"
+                autoFocus
+                value={pin}
+                onChange={(e) => setPin(onlyDigits(e.target.value, 4))}
+                placeholder="••••"
+                className={pinInputClass}
+                style={inputStyle}
               />
-            </div>
-            <div>
-              <label className="font-body text-xs font-medium tracking-wide" style={{ color: theme.labelColor }}>NÚMERO DE TELÉFONO</label>
-              <input
-                value={phone}
-                onChange={(e) => setPhone(e.target.value)}
-                placeholder="809 000 0000"
-                type="tel"
-                className="font-body w-full mt-2 px-4 py-3 rounded-xl outline-none"
-                style={{ background: theme.inputBg, border: `1px solid ${theme.inputBorder}`, color: theme.textPrimary }}
-              />
-              <p className="font-body text-xs mt-2" style={{ color: theme.textMuted }}>Lo usamos para confirmar tu cita y avisarte si algo cambia.</p>
-            </div>
-            <button
-              type="submit"
-              disabled={loading || !name.trim() || !phone.trim()}
-              className="font-body w-full flex items-center justify-center gap-2 py-3.5 rounded-xl font-semibold mt-2 disabled:opacity-50"
-              style={{ background: `linear-gradient(135deg, ${theme.accentFrom} 0%, ${theme.accentTo} 100%)`, color: theme.buttonText }}
-            >
-              {loading ? "Un momento..." : "Continuar"}
-              <ArrowRight className="w-4 h-4" />
-            </button>
-          </form>
 
-          <div className="flex items-center gap-2 justify-center mt-5">
+              {error && <p className="font-body text-xs mt-3" style={{ color: "#F19391" }}>{error}</p>}
+
+              <button
+                type="submit"
+                disabled={loading || pin.length !== 4}
+                className="font-body w-full flex items-center justify-center gap-2 py-3.5 rounded-xl font-semibold mt-5 disabled:opacity-50"
+                style={{ background: `linear-gradient(135deg, ${theme.accentFrom}, ${theme.accentTo})`, color: theme.buttonText }}
+              >
+                {loading ? "Entrando..." : "Entrar"}
+                {!loading && <ArrowRight className="w-4 h-4" />}
+              </button>
+
+              <div className="flex items-center justify-between mt-5">
+                <button type="button" onClick={() => { setShowRecovery(true); setError(null); }} className="font-body text-xs" style={{ color: theme.accentRing }}>
+                  ¿Olvidaste tu PIN?
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { onForget(); setMode("login"); setPin(""); setError(null); }}
+                  className="font-body text-xs"
+                  style={{ color: theme.textMuted }}
+                >
+                  Usar otro número
+                </button>
+              </div>
+            </form>
+          )}
+
+          {/* ---------- REGISTRO (primera vez) ---------- */}
+          {mode === "register" && (
+            <form onSubmit={doRegister}>
+              <h2 className="font-display text-xl mb-1" style={{ color: theme.textPrimary }}>Reserva tu cita</h2>
+              <p className="font-body text-sm mb-6" style={{ color: theme.textMuted }}>
+                {business.name} te invitó a agendar. Crea tu PIN una vez y listo.
+              </p>
+
+              <div className="space-y-4">
+                <div>
+                  <label className="font-body text-xs font-medium tracking-wide" style={{ color: theme.labelColor }}>NOMBRE COMPLETO</label>
+                  <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Tu nombre y apellido"
+                    className="font-body w-full mt-2 px-4 py-3 rounded-xl outline-none" style={inputStyle} />
+                </div>
+                <div>
+                  <label className="font-body text-xs font-medium tracking-wide" style={{ color: theme.labelColor }}>NÚMERO DE TELÉFONO</label>
+                  <input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="809 000 0000" type="tel"
+                    className="font-body w-full mt-2 px-4 py-3 rounded-xl outline-none" style={inputStyle} />
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="font-body text-xs font-medium tracking-wide" style={{ color: theme.labelColor }}>PIN (4 díg.)</label>
+                    <input inputMode="numeric" value={pin} onChange={(e) => setPin(onlyDigits(e.target.value, 4))} placeholder="••••"
+                      className="font-display w-full mt-2 px-3 py-3 rounded-xl outline-none text-center text-xl tracking-[0.3em]" style={inputStyle} />
+                  </div>
+                  <div>
+                    <label className="font-body text-xs font-medium tracking-wide" style={{ color: theme.labelColor }}>CONFIRMAR</label>
+                    <input inputMode="numeric" value={pin2} onChange={(e) => setPin2(onlyDigits(e.target.value, 4))} placeholder="••••"
+                      className="font-display w-full mt-2 px-3 py-3 rounded-xl outline-none text-center text-xl tracking-[0.3em]" style={inputStyle} />
+                  </div>
+                </div>
+              </div>
+
+              <p className="font-body text-xs mt-3" style={{ color: theme.textMuted }}>
+                Con tu número y PIN entras la próxima vez sin escribir todo de nuevo.
+              </p>
+              {error && <p className="font-body text-xs mt-3" style={{ color: "#F19391" }}>{error}</p>}
+
+              <button type="submit" disabled={loading}
+                className="font-body w-full flex items-center justify-center gap-2 py-3.5 rounded-xl font-semibold mt-4 disabled:opacity-50"
+                style={{ background: `linear-gradient(135deg, ${theme.accentFrom}, ${theme.accentTo})`, color: theme.buttonText }}>
+                {loading ? "Creando..." : "Crear mi PIN y continuar"}
+                {!loading && <ArrowRight className="w-4 h-4" />}
+              </button>
+
+              <p className="font-body text-xs text-center mt-5" style={{ color: theme.textMuted }}>
+                ¿Ya tienes cuenta?{" "}
+                <button type="button" onClick={() => { setMode("login"); setError(null); setPin(""); setPin2(""); }} style={{ color: theme.accentRing }}>
+                  Entra con tu PIN
+                </button>
+              </p>
+            </form>
+          )}
+
+          {/* ---------- LOGIN (otro dispositivo / ya tengo cuenta) ---------- */}
+          {mode === "login" && (
+            <form onSubmit={doLogin}>
+              <h2 className="font-display text-xl mb-1" style={{ color: theme.textPrimary }}>Entrar con tu PIN</h2>
+              <p className="font-body text-sm mb-6" style={{ color: theme.textMuted }}>
+                Escribe tu número y tu PIN de 4 dígitos.
+              </p>
+
+              <div className="space-y-4">
+                <div>
+                  <label className="font-body text-xs font-medium tracking-wide" style={{ color: theme.labelColor }}>NÚMERO DE TELÉFONO</label>
+                  <input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="809 000 0000" type="tel"
+                    className="font-body w-full mt-2 px-4 py-3 rounded-xl outline-none" style={inputStyle} />
+                </div>
+                <div>
+                  <label className="font-body text-xs font-medium tracking-wide" style={{ color: theme.labelColor }}>PIN</label>
+                  <input inputMode="numeric" value={pin} onChange={(e) => setPin(onlyDigits(e.target.value, 4))} placeholder="••••"
+                    className={pinInputClass} style={inputStyle} />
+                </div>
+              </div>
+
+              {error && <p className="font-body text-xs mt-3" style={{ color: "#F19391" }}>{error}</p>}
+
+              <button type="submit" disabled={loading || pin.length !== 4}
+                className="font-body w-full flex items-center justify-center gap-2 py-3.5 rounded-xl font-semibold mt-5 disabled:opacity-50"
+                style={{ background: `linear-gradient(135deg, ${theme.accentFrom}, ${theme.accentTo})`, color: theme.buttonText }}>
+                {loading ? "Entrando..." : "Entrar"}
+                {!loading && <ArrowRight className="w-4 h-4" />}
+              </button>
+
+              <div className="flex items-center justify-between mt-5">
+                <button type="button" onClick={() => { setShowRecovery(true); setError(null); }} className="font-body text-xs" style={{ color: theme.accentRing }}>
+                  ¿Olvidaste tu PIN?
+                </button>
+                <button type="button" onClick={() => { setMode("register"); setError(null); setPin(""); }} className="font-body text-xs" style={{ color: theme.textMuted }}>
+                  Soy nuevo
+                </button>
+              </div>
+            </form>
+          )}
+
+          {/* Recuperación por SMS (pendiente de programar) */}
+          {showRecovery && (
+            <div className="mt-5 rounded-xl p-4" style={{ background: theme.chipBg, border: `1px solid ${theme.cardBorder}` }}>
+              <div className="flex items-center gap-2 mb-1">
+                <Lock className="w-3.5 h-3.5" style={{ color: theme.accentRing }} />
+                <span className="font-body text-xs font-semibold" style={{ color: theme.textPrimary }}>Recuperar PIN</span>
+              </div>
+              <p className="font-body text-xs" style={{ color: theme.textMuted }}>
+                La recuperación por SMS estará disponible pronto. Por ahora, pídele al negocio que te ayude a restablecerlo.
+              </p>
+              <button type="button" onClick={() => setShowRecovery(false)} className="font-body text-xs mt-2" style={{ color: theme.accentRing }}>
+                Entendido
+              </button>
+            </div>
+          )}
+
+          <div className="flex items-center gap-2 justify-center mt-6">
             <ShieldCheck className="w-3.5 h-3.5" style={{ color: theme.textMuted }} />
             <p className="font-body text-xs" style={{ color: theme.textMuted }}>Tus datos solo se comparten con {business.name}.</p>
           </div>
