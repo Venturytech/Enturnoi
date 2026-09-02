@@ -1,9 +1,8 @@
 import { redirect } from "next/navigation";
 import Link from "next/link";
-import { LogOut } from "lucide-react";
+import { getTheme, type BusinessType } from "@/lib/theme";
 import { createClient } from "@/lib/supabase/server";
-import { getTheme } from "@/lib/theme";
-import { signOut } from "@/app/auth/actions";
+import OperationsPanel from "./OperationsPanel";
 
 export default async function DashboardPage() {
   const supabase = createClient();
@@ -13,67 +12,73 @@ export default async function DashboardPage() {
 
   if (!user) redirect("/login");
 
-  // ¿El dueño ya creó su negocio?
   const { data: business } = await supabase
     .from("businesses")
-    .select("id, name, type, status")
+    .select("id, name, type, status, logo_url, invite_slug")
     .eq("owner_id", user.id)
     .maybeSingle();
 
-  const theme = getTheme(business?.type === "salon" ? "salon" : "barber");
+  if (!business) {
+    const pendingType: BusinessType =
+      user.user_metadata?.business_type === "salon" ? "salon" : "barber";
+    const theme = getTheme(pendingType);
+    return (
+      <main className="min-h-screen w-full flex items-center" style={{ background: theme.pageBg }}>
+        <div className="px-5 py-8 max-w-sm mx-auto w-full">
+          <h1 className="font-display text-2xl mb-1" style={{ color: theme.textPrimary }}>
+            Casi listo
+          </h1>
+          <p className="font-body text-sm mb-6" style={{ color: theme.textMuted }}>
+            Aún no has creado tu negocio. Vamos a configurarlo.
+          </p>
+          <Link
+            href="/onboarding"
+            className="font-body inline-block py-3 px-5 rounded-xl font-semibold"
+            style={{
+              background: `linear-gradient(135deg, ${theme.accentFrom}, ${theme.accentTo})`,
+              color: theme.buttonText,
+            }}
+          >
+            Crear mi negocio
+          </Link>
+        </div>
+      </main>
+    );
+  }
+
+  const todayKey = new Date().toISOString().slice(0, 10);
+
+  const [{ data: staff }, { data: appointments }, { count: clientsCount }] = await Promise.all([
+    supabase
+      .from("staff")
+      .select("id, name, specialty")
+      .eq("business_id", business.id)
+      .order("name"),
+    supabase
+      .from("appointments")
+      .select(
+        `id, appt_time, price, status,
+         staff:staff_id ( id, name ),
+         client:client_id ( name ),
+         business_service:business_service_id ( catalog:catalog_service_id ( name ) )`
+      )
+      .eq("business_id", business.id)
+      .eq("appt_date", todayKey)
+      .in("status", ["scheduled", "present"])
+      .order("appt_time"),
+    supabase
+      .from("client_business")
+      .select("id", { count: "exact", head: true })
+      .eq("business_id", business.id),
+  ]);
 
   return (
-    <main className="min-h-screen w-full" style={{ background: theme.pageBg }}>
-      <div
-        className="flex items-center justify-between px-5 py-4"
-        style={{ borderBottom: `1px solid ${theme.divider}` }}
-      >
-        <span className="font-display text-base" style={{ color: theme.textPrimary }}>
-          {business?.name ?? "EnTurnoApp"}
-        </span>
-        <form action={signOut}>
-          <button
-            className="font-body flex items-center gap-1.5 text-xs font-medium px-3 py-2 rounded-lg"
-            style={{ border: `1px solid ${theme.cardBorder}`, color: theme.textMuted }}
-          >
-            <LogOut className="w-3.5 h-3.5" />
-            Salir
-          </button>
-        </form>
-      </div>
-
-      <div className="px-5 py-8 max-w-sm mx-auto">
-        {business ? (
-          <>
-            <h1 className="font-display text-2xl mb-1" style={{ color: theme.textPrimary }}>
-              Tu negocio hoy
-            </h1>
-            <p className="font-body text-sm" style={{ color: theme.textMuted }}>
-              Sesión iniciada como {user.email}. El panel de operaciones se conecta en la
-              siguiente pantalla que migremos.
-            </p>
-          </>
-        ) : (
-          <>
-            <h1 className="font-display text-2xl mb-1" style={{ color: theme.textPrimary }}>
-              Casi listo
-            </h1>
-            <p className="font-body text-sm mb-6" style={{ color: theme.textMuted }}>
-              Aún no has creado tu negocio. Vamos a configurarlo.
-            </p>
-            <Link
-              href="/onboarding"
-              className="font-body inline-block py-3 px-5 rounded-xl font-semibold"
-              style={{
-                background: `linear-gradient(135deg, ${theme.accentFrom}, ${theme.accentTo})`,
-                color: theme.buttonText,
-              }}
-            >
-              Crear mi negocio
-            </Link>
-          </>
-        )}
-      </div>
-    </main>
+    <OperationsPanel
+      business={business}
+      staff={staff ?? []}
+      initialAppointments={(appointments ?? []) as any}
+      clientsRegistered={clientsCount ?? 0}
+      today={todayKey}
+    />
   );
 }

@@ -11,7 +11,6 @@ export default async function OnboardingPage() {
 
   if (!user) redirect("/login");
 
-  // Si ya tiene negocio, va directo al panel.
   const { data: existing } = await supabase
     .from("businesses")
     .select("id")
@@ -22,7 +21,6 @@ export default async function OnboardingPage() {
   const businessType: BusinessType =
     user.user_metadata?.business_type === "salon" ? "salon" : "barber";
 
-  // Catálogo global del tipo de negocio, agrupado luego en el formulario.
   const { data: catalog } = await supabase
     .from("services_catalog")
     .select("id, category, name")

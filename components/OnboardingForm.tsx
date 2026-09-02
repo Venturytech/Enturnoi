@@ -2,7 +2,7 @@
 
 import { useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Upload, Plus, Minus, Check, ArrowRight, ChevronDown } from "lucide-react";
+import { Upload, Plus, X, Check, ArrowRight, ChevronDown } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { getTheme, cardShadow, type BusinessType } from "@/lib/theme";
 
@@ -33,7 +33,6 @@ export default function OnboardingForm({
   const isBarber = businessType === "barber";
   const theme = getTheme(businessType);
 
-  // Agrupa el catálogo por categoría conservando el orden recibido.
   const groups = useMemo(() => {
     const map = new Map<string, CatalogItem[]>();
     for (const item of catalog) {
@@ -46,7 +45,7 @@ export default function OnboardingForm({
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
   const [address, setAddress] = useState("");
-  const [staffCount, setStaffCount] = useState(2);
+  const [staffNames, setStaffNames] = useState<string[]>(["", ""]);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [prices, setPrices] = useState<Record<string, string>>({});
   const [openCats, setOpenCats] = useState<Set<string>>(
@@ -76,10 +75,26 @@ export default function OnboardingForm({
     setOpenCats(next);
   };
 
+  const updateStaffName = (index: number, value: string) => {
+    const next = [...staffNames];
+    next[index] = value;
+    setStaffNames(next);
+  };
+  const addStaffField = () => setStaffNames([...staffNames, ""]);
+  const removeStaffField = (index: number) => {
+    if (staffNames.length <= 1) return;
+    setStaffNames(staffNames.filter((_, i) => i !== index));
+  };
+
   const onSubmit = async () => {
     setError(null);
     if (!name.trim()) {
       setError("Ponle un nombre a tu negocio.");
+      return;
+    }
+    const cleanStaffNames = staffNames.map((n) => n.trim()).filter(Boolean);
+    if (cleanStaffNames.length === 0) {
+      setError(isBarber ? "Agrega al menos un barbero." : "Agrega al menos un estilista.");
       return;
     }
     setLoading(true);
@@ -103,7 +118,7 @@ export default function OnboardingForm({
           type: businessType,
           phone: phone.trim() || null,
           address: address.trim() || null,
-          staff_count: staffCount,
+          staff_count: cleanStaffNames.length,
           invite_slug: slug,
           status: "active",
         })
@@ -112,6 +127,17 @@ export default function OnboardingForm({
 
       if (bizError || !business) {
         setError("No se pudo crear el negocio. Intenta de nuevo.");
+        return;
+      }
+
+      // Crea el perfil de cada barbero/estilista con el nombre que puso el dueño.
+      const staffRows = cleanStaffNames.map((staffName) => ({
+        business_id: business.id,
+        name: staffName,
+      }));
+      const { error: staffError } = await supabase.from("staff").insert(staffRows);
+      if (staffError) {
+        setError("El negocio se creó, pero hubo un problema guardando el equipo.");
         return;
       }
 
@@ -247,29 +273,43 @@ export default function OnboardingForm({
 
           <div className="mb-6">
             <label className="font-body text-xs font-medium tracking-wide" style={{ color: theme.labelColor }}>
-              {isBarber ? "CANTIDAD DE BARBEROS" : "CANTIDAD DE ESTILISTAS"}
+              {isBarber ? "TU EQUIPO DE BARBEROS" : "TU EQUIPO DE ESTILISTAS"}
             </label>
-            <div className="flex items-center gap-4 mt-2">
-              <button
-                type="button"
-                onClick={() => setStaffCount(Math.max(1, staffCount - 1))}
-                className="w-9 h-9 rounded-lg flex items-center justify-center"
-                style={{ background: theme.inputBg, border: `1px solid ${theme.inputBorder}` }}
-              >
-                <Minus className="w-4 h-4" style={{ color: theme.textPrimary }} />
-              </button>
-              <span className="font-display text-xl w-6 text-center" style={{ color: theme.textPrimary }}>
-                {staffCount}
-              </span>
-              <button
-                type="button"
-                onClick={() => setStaffCount(staffCount + 1)}
-                className="w-9 h-9 rounded-lg flex items-center justify-center"
-                style={{ background: theme.inputBg, border: `1px solid ${theme.inputBorder}` }}
-              >
-                <Plus className="w-4 h-4" style={{ color: theme.textPrimary }} />
-              </button>
+            <p className="font-body text-xs mt-1 mb-3" style={{ color: theme.textMuted }}>
+              Escribe el nombre de cada {isBarber ? "barbero" : "estilista"}. Con esto ya quedan creados sus perfiles.
+            </p>
+            <div className="space-y-2">
+              {staffNames.map((staffName, index) => (
+                <div key={index} className="flex items-center gap-2">
+                  <input
+                    value={staffName}
+                    onChange={(e) => updateStaffName(index, e.target.value)}
+                    placeholder={isBarber ? `Barbero ${index + 1}` : `Estilista ${index + 1}`}
+                    className="font-body flex-1 px-4 py-3 rounded-xl outline-none"
+                    style={{ background: theme.inputBg, border: `1px solid ${theme.inputBorder}`, color: theme.textPrimary }}
+                  />
+                  {staffNames.length > 1 && (
+                    <button
+                      type="button"
+                      onClick={() => removeStaffField(index)}
+                      className="w-9 h-9 shrink-0 rounded-lg flex items-center justify-center"
+                      style={{ background: theme.inputBg, border: `1px solid ${theme.inputBorder}` }}
+                    >
+                      <X className="w-4 h-4" style={{ color: theme.textMuted }} />
+                    </button>
+                  )}
+                </div>
+              ))}
             </div>
+            <button
+              type="button"
+              onClick={addStaffField}
+              className="font-body w-full flex items-center justify-center gap-1.5 mt-2 py-2.5 rounded-xl text-sm font-medium"
+              style={{ background: theme.chipBg, color: theme.accentRing }}
+            >
+              <Plus className="w-4 h-4" />
+              Agregar {isBarber ? "barbero" : "estilista"}
+            </button>
           </div>
 
           <div className="h-px w-full mb-6" style={{ background: theme.divider }} />

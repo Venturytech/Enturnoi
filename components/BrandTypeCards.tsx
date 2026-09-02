@@ -3,8 +3,6 @@
 import { Scissors, Flower2 } from "lucide-react";
 import type { BusinessType } from "@/lib/theme";
 
-// Selector visual barbería / salón (las dos tarjetas con la franja de color).
-// Reutilizado por login, registro y onboarding.
 function Card({
   variant,
   active,

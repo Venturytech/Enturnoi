@@ -1,7 +1,6 @@
 import Link from "next/link";
 import { getTheme } from "@/lib/theme";
 
-// Portada temporal. Se reemplaza cuando migremos las pantallas del cliente.
 export default function Home() {
   const theme = getTheme("barber");
 

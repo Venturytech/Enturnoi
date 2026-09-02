@@ -42,7 +42,6 @@ export default function RegisterPage() {
         );
         return;
       }
-      // Si la confirmación por correo está desactivada, ya hay sesión → onboarding.
       if (data.session) {
         router.push("/onboarding");
         router.refresh();

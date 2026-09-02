@@ -1,11 +1,3 @@
-// =============================================================
-// Tema visual único barbería / salón.
-// Reemplaza las copias del objeto `theme` repartidas por los
-// prototipos de /screens. Cambia aquí y cambia en toda la app.
-//   barbería = negro + dorado
-//   salón    = blanco + rosado
-// =============================================================
-
 export type BusinessType = "barber" | "salon";
 
 export interface Theme {

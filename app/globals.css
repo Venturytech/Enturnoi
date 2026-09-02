@@ -2,7 +2,6 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Tipografía de los prototipos. Las fuentes se cargan con <link> en el layout. */
 .font-display {
   font-family: "Fraunces", serif;
 }

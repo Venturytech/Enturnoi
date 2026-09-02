@@ -2,7 +2,6 @@ import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
 import { SUPABASE_URL, SUPABASE_ANON_KEY } from "./config";
 
-// Cliente de Supabase para Server Components / rutas del servidor.
 export function createClient() {
   const cookieStore = cookies();
 

@@ -14,8 +14,6 @@ export default function RootLayout({
   return (
     <html lang="es">
       <head>
-        {/* Fuentes cargadas desde el navegador (como los prototipos), para no
-            depender de la red durante el build en Vercel. */}
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
         <link

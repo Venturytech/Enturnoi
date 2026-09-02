@@ -1,8 +1,3 @@
-// Configuración de conexión a Supabase.
-// Se prefieren las variables de entorno (para poder rotar sin tocar código),
-// con respaldo a los valores públicos del proyecto. La clave `anon` es
-// PÚBLICA por diseño: viaja al navegador de todos modos y la seguridad real
-// la impone el RLS definido en la base de datos.
 export const SUPABASE_URL =
   process.env.NEXT_PUBLIC_SUPABASE_URL ?? "https://jtjpaigxmepqwehyjijd.supabase.co";
 
