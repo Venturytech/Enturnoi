@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import {
   Menu, Users, PauseCircle, CheckCircle2, XCircle, RefreshCw,
-  Scissors, Flower2, LogOut,
+  Scissors, Flower2, LogOut, Store, ShieldCheck, UserCog,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { signOut } from "@/app/auth/actions";
@@ -16,6 +16,13 @@ type BusinessRow = {
   owner_name: string;
   owner_email: string;
   created_at: string;
+};
+
+type UserRow = {
+  id: string;
+  role: "superadmin" | "admin" | "owner";
+  full_name: string;
+  email: string;
 };
 
 function formatDate(iso: string) {
@@ -100,7 +107,7 @@ function BusinessCard({
           className="font-body flex-1 text-xs font-medium py-2 rounded-lg transition disabled:opacity-40"
           style={{ border: "1px solid #4a3a1f", color: "#F0C567" }}
         >
-          {biz.status === "suspended" ? "Activar" : "Suspender"}
+          {biz.status === "active" ? "Suspender" : biz.status === "pending" ? "Aprobar" : "Activar"}
         </button>
         <button
           onClick={() => onDelete(biz)}
@@ -115,12 +122,18 @@ function BusinessCard({
   );
 }
 
-export default function AdminPanelClient() {
+export default function AdminPanelClient({ isSuperadmin, currentUserId }: { isSuperadmin: boolean; currentUserId: string }) {
   const supabase = createClient();
+  const [tab, setTab] = useState<"businesses" | "users">("businesses");
   const [filter, setFilter] = useState<"all" | "barber" | "salon">("all");
   const [businesses, setBusinesses] = useState<BusinessRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState<string | null>(null);
+
+  const [users, setUsers] = useState<UserRow[]>([]);
+  const [usersLoading, setUsersLoading] = useState(false);
+  const [roleBusyId, setRoleBusyId] = useState<string | null>(null);
+  const [roleError, setRoleError] = useState<string | null>(null);
 
   async function load() {
     setLoading(true);
@@ -129,19 +142,39 @@ export default function AdminPanelClient() {
     setLoading(false);
   }
 
+  async function loadUsers() {
+    setUsersLoading(true);
+    const { data } = await supabase.rpc("admin_list_users");
+    setUsers((data ?? []) as UserRow[]);
+    setUsersLoading(false);
+  }
+
   useEffect(() => {
     load();
+    if (isSuperadmin) loadUsers();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   async function toggleStatus(biz: BusinessRow) {
     setBusyId(biz.id);
-    const nextStatus = biz.status === "suspended" ? "active" : "suspended";
+    const nextStatus = biz.status === "active" ? "suspended" : "active";
     const { error } = await supabase.from("businesses").update({ status: nextStatus }).eq("id", biz.id);
     if (!error) {
       setBusinesses((prev) => prev.map((b) => (b.id === biz.id ? { ...b, status: nextStatus } : b)));
     }
     setBusyId(null);
+  }
+
+  async function changeRole(u: UserRow, role: UserRow["role"]) {
+    setRoleError(null);
+    setRoleBusyId(u.id);
+    const { error } = await supabase.rpc("admin_set_role", { p_user_id: u.id, p_role: role });
+    if (error) {
+      setRoleError(error.message || "No se pudo cambiar el rol.");
+    } else {
+      setUsers((prev) => prev.map((x) => (x.id === u.id ? { ...x, role } : x)));
+    }
+    setRoleBusyId(null);
   }
 
   async function deleteBusiness(biz: BusinessRow) {
@@ -191,8 +224,30 @@ export default function AdminPanelClient() {
       <div className="px-5 py-6 max-w-2xl mx-auto">
         <span className="font-body text-[11px] font-semibold tracking-wider" style={{ color: "#C9962C" }}>ADMINISTRACIÓN PRINCIPAL</span>
         <h1 className="font-display text-2xl mt-1" style={{ color: "#F3EBDA" }}>Negocios registrados</h1>
-        <p className="font-body text-sm mt-1" style={{ color: "#8a8072" }}>Gestiona las barberías y salones activos en la plataforma.</p>
+        <p className="font-body text-sm mt-1" style={{ color: "#8a8072" }}>Gestiona las barberías y salones de la plataforma.</p>
 
+        {isSuperadmin && (
+          <div className="flex gap-2 mt-5">
+            <button
+              onClick={() => setTab("businesses")}
+              className="font-body flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-medium"
+              style={{ background: tab === "businesses" ? "#C9962C" : "#141210", border: `1px solid ${tab === "businesses" ? "#C9962C" : "#29231a"}`, color: tab === "businesses" ? "#0A0806" : "#c4b89f" }}
+            >
+              <Store className="w-4 h-4" />
+              Negocios
+            </button>
+            <button
+              onClick={() => setTab("users")}
+              className="font-body flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-medium"
+              style={{ background: tab === "users" ? "#C9962C" : "#141210", border: `1px solid ${tab === "users" ? "#C9962C" : "#29231a"}`, color: tab === "users" ? "#0A0806" : "#c4b89f" }}
+            >
+              <UserCog className="w-4 h-4" />
+              Usuarios y roles
+            </button>
+          </div>
+        )}
+
+        {tab === "businesses" && (<>
         <button
           onClick={load}
           disabled={loading}
@@ -215,18 +270,18 @@ export default function AdminPanelClient() {
             { key: "all" as const, label: "Todos" },
             { key: "barber" as const, label: "Barbería" },
             { key: "salon" as const, label: "Salón" },
-          ].map((tab) => (
+          ].map((t) => (
             <button
-              key={tab.key}
-              onClick={() => setFilter(tab.key)}
+              key={t.key}
+              onClick={() => setFilter(t.key)}
               className="font-body text-xs font-medium px-4 py-2 rounded-full transition"
               style={{
-                background: filter === tab.key ? "#C9962C" : "#141210",
-                border: filter === tab.key ? "1px solid #C9962C" : "1px solid #29231a",
-                color: filter === tab.key ? "#0A0806" : "#8a8072",
+                background: filter === t.key ? "#C9962C" : "#141210",
+                border: filter === t.key ? "1px solid #C9962C" : "1px solid #29231a",
+                color: filter === t.key ? "#0A0806" : "#8a8072",
               }}
             >
-              {tab.label}
+              {t.label}
             </button>
           ))}
         </div>
@@ -241,6 +296,85 @@ export default function AdminPanelClient() {
             </div>
           )}
         </div>
+        </>)}
+
+        {tab === "users" && isSuperadmin && (
+          <div className="mt-5">
+            <button
+              onClick={loadUsers}
+              disabled={usersLoading}
+              className="font-body w-full flex items-center justify-center gap-2 py-3 rounded-xl text-sm font-medium disabled:opacity-50 mb-4"
+              style={{ background: "#141210", border: "1px solid #29231a", color: "#c4b89f" }}
+            >
+              <RefreshCw className={`w-4 h-4 ${usersLoading ? "animate-spin" : ""}`} />
+              Actualizar usuarios
+            </button>
+
+            <p className="font-body text-xs mb-4" style={{ color: "#8a8072" }}>
+              Solo tú (superadmin) puedes cambiar roles. Un superadmin puede administrar toda la plataforma.
+            </p>
+
+            {roleError && (
+              <div className="rounded-xl p-3 mb-4 font-body text-xs" style={{ background: "#3a1c1c", border: "1px solid #4a1f1f", color: "#F19391" }}>
+                {roleError}
+              </div>
+            )}
+
+            <div className="space-y-3">
+              {users.map((u) => {
+                const isSelf = u.id === currentUserId;
+                const roleLabel = u.role === "superadmin" ? "Superadmin" : u.role === "admin" ? "Admin" : "Dueño";
+                const roleColor = u.role === "superadmin" ? { bg: "#332813", c: "#F0C567" } : u.role === "admin" ? { bg: "#173a2a", c: "#7BE3AB" } : { bg: "#2a2318", c: "#c4b89f" };
+                return (
+                  <div key={u.id} className="rounded-2xl p-4" style={{ background: "#141210", border: "1px solid #29231a" }}>
+                    <div className="flex items-start gap-3">
+                      <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ background: "#2a2318" }}>
+                        {u.role === "owner" ? <UserCog className="w-4 h-4" style={{ color: "#c4b89f" }} /> : <ShieldCheck className="w-4 h-4" style={{ color: "#F0C567" }} />}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center justify-between gap-2">
+                          <h4 className="font-display text-base truncate" style={{ color: "#F3EBDA" }}>{u.full_name}{isSelf ? " (tú)" : ""}</h4>
+                          <span className="font-body text-xs font-medium px-2.5 py-1 rounded-full" style={{ background: roleColor.bg, color: roleColor.c }}>{roleLabel}</span>
+                        </div>
+                        <p className="font-body text-xs mt-0.5 truncate" style={{ color: "#8a8072" }}>{u.email}</p>
+                      </div>
+                    </div>
+
+                    {!isSelf && (
+                      <div className="flex gap-2 mt-4">
+                        {u.role !== "superadmin" && (
+                          <button
+                            onClick={() => changeRole(u, "superadmin")}
+                            disabled={roleBusyId === u.id}
+                            className="font-body flex-1 text-xs font-medium py-2 rounded-lg disabled:opacity-40"
+                            style={{ border: "1px solid #4a3a1f", color: "#F0C567" }}
+                          >
+                            Hacer superadmin
+                          </button>
+                        )}
+                        {u.role !== "owner" && (
+                          <button
+                            onClick={() => changeRole(u, "owner")}
+                            disabled={roleBusyId === u.id}
+                            className="font-body flex-1 text-xs font-medium py-2 rounded-lg disabled:opacity-40"
+                            style={{ border: "1px solid #3a3222", color: "#c4b89f" }}
+                          >
+                            Quitar acceso admin
+                          </button>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+              {!usersLoading && users.length === 0 && (
+                <div className="rounded-2xl p-6 text-center" style={{ background: "#141210", border: "1px solid #29231a" }}>
+                  <p className="font-body text-sm" style={{ color: "#8a8072" }}>No hay usuarios para mostrar.</p>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

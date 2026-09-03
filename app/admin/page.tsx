@@ -20,5 +20,5 @@ export default async function AdminPage() {
     redirect("/dashboard");
   }
 
-  return <AdminPanelClient />;
+  return <AdminPanelClient isSuperadmin={profile.role === "superadmin"} currentUserId={user.id} />;
 }

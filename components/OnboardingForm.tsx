@@ -120,7 +120,8 @@ export default function OnboardingForm({
           address: address.trim() || null,
           staff_count: cleanStaffNames.length,
           invite_slug: slug,
-          status: "active",
+          // Nuevo: entra en revisión; el superadmin lo activa desde el Panel Maestro.
+          status: "pending",
         })
         .select("id")
         .single();

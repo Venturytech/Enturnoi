@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import Link from "next/link";
 import { getTheme, type BusinessType } from "@/lib/theme";
 import { createClient } from "@/lib/supabase/server";
+import { signOut } from "@/app/auth/actions";
 import OperationsPanel from "./OperationsPanel";
 
 export default async function DashboardPage() {
@@ -41,6 +42,35 @@ export default async function DashboardPage() {
           >
             Crear mi negocio
           </Link>
+        </div>
+      </main>
+    );
+  }
+
+  // El negocio nuevo entra "pending": espera aprobación del superadmin.
+  // Suspendido: el superadmin lo pausó. En ambos casos no mostramos el panel.
+  if (business.status !== "active") {
+    const theme = getTheme(business.type);
+    const pending = business.status === "pending";
+    return (
+      <main className="min-h-screen w-full flex items-center" style={{ background: theme.pageBg }}>
+        <div className="px-5 py-8 max-w-sm mx-auto w-full text-center">
+          <div className="w-14 h-14 rounded-2xl mx-auto mb-4 flex items-center justify-center" style={{ background: theme.chipBg }}>
+            <span className="font-display text-2xl" style={{ color: theme.accentRing }}>{pending ? "⏳" : "⏸"}</span>
+          </div>
+          <h1 className="font-display text-2xl mb-2" style={{ color: theme.textPrimary }}>
+            {pending ? "Tu negocio está en revisión" : "Tu negocio está suspendido"}
+          </h1>
+          <p className="font-body text-sm mb-6" style={{ color: theme.textMuted }}>
+            {pending
+              ? "Ya recibimos tu registro. El equipo de EnTurnoApp activará tu cuenta muy pronto. Vuelve a entrar en un rato."
+              : "Tu cuenta fue pausada. Escríbenos para reactivarla."}
+          </p>
+          <form action={signOut}>
+            <button className="font-body inline-flex items-center justify-center gap-2 py-3 px-5 rounded-xl font-semibold" style={{ background: theme.chipBg, color: theme.accentRing, border: `1px solid ${theme.cardBorder}` }}>
+              Cerrar sesión
+            </button>
+          </form>
         </div>
       </main>
     );
