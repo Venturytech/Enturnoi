@@ -17,6 +17,8 @@ import { signOut } from "@/app/auth/actions";
 // ---------------------------------------------------------------
 type Business = { id: string; name: string; type: BusinessType; status: string; logo_url: string | null; invite_slug: string; phone: string | null; address: string | null };
 type Staff = { id: string; name: string; specialty: string | null; photo_url: string | null };
+type CatalogItem = { id: string; category: string; name: string };
+type BusinessService = { catalog_service_id: string; price: number };
 
 type RawAppointment = {
   id: string;
@@ -277,7 +279,7 @@ function CalendarView({ theme, staff, onBack }: { theme: Theme; staff: Staff[]; 
     <div>
       <button
         onClick={onBack}
-        className="font-body inline-flex items-center gap-1.5 text-sm font-medium mb-5 px-3 py-1.5 rounded-full"
+        className="font-body flex w-fit items-center gap-1.5 text-sm font-medium mb-5 px-3 py-1.5 rounded-full"
         style={{ color: theme.accentRing, border: `1px solid ${theme.accentRing}` }}
       >
         <ChevronLeft className="w-4 h-4" />
@@ -433,7 +435,7 @@ function ReportView({ theme, businessId, onBack }: { theme: Theme; businessId: s
     <div>
       <button
         onClick={onBack}
-        className="font-body inline-flex items-center gap-1.5 text-sm font-medium mb-5 px-3 py-1.5 rounded-full"
+        className="font-body flex w-fit items-center gap-1.5 text-sm font-medium mb-5 px-3 py-1.5 rounded-full"
         style={{ color: theme.accentRing, border: `1px solid ${theme.accentRing}` }}
       >
         <ChevronLeft className="w-4 h-4" />
@@ -540,7 +542,7 @@ function AppointmentsView({
     <div>
       <button
         onClick={onBack}
-        className="font-body inline-flex items-center gap-1.5 text-sm font-medium mb-5 px-3 py-1.5 rounded-full"
+        className="font-body flex w-fit items-center gap-1.5 text-sm font-medium mb-5 px-3 py-1.5 rounded-full"
         style={{ color: theme.accentRing, border: `1px solid ${theme.accentRing}` }}
       >
         <ChevronLeft className="w-4 h-4" />
@@ -611,15 +613,20 @@ function SettingsView({
   theme,
   business,
   staff,
+  catalog,
+  services,
   onBack,
 }: {
   theme: Theme;
   business: Business;
   staff: Staff[];
+  catalog: CatalogItem[];
+  services: BusinessService[];
   onBack: () => void;
 }) {
   const supabase = createClient();
   const router = useRouter();
+  const isBarber = business.type === "barber";
 
   const [name, setName] = useState(business.name);
   const [phone, setPhone] = useState(business.phone ?? "");
@@ -635,6 +642,77 @@ function SettingsView({
   const [newSpecialty, setNewSpecialty] = useState("");
   const [addingStaff, setAddingStaff] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Servicios / cortes (mismo catálogo del onboarding, ya precargado)
+  const catGroups = useMemo(() => {
+    const map = new Map<string, CatalogItem[]>();
+    for (const item of catalog) {
+      if (!map.has(item.category)) map.set(item.category, []);
+      map.get(item.category)!.push(item);
+    }
+    return Array.from(map.entries()).map(([category, items]) => ({ category, items }));
+  }, [catalog]);
+
+  const [selectedSvc, setSelectedSvc] = useState<Set<string>>(new Set(services.map((s) => s.catalog_service_id)));
+  const [svcPrices, setSvcPrices] = useState<Record<string, string>>(() => {
+    const m: Record<string, string> = {};
+    for (const s of services) m[s.catalog_service_id] = s.price != null ? String(s.price) : "";
+    return m;
+  });
+  const [openCats, setOpenCats] = useState<Set<string>>(new Set());
+  const [savingSvc, setSavingSvc] = useState(false);
+  const [svcSaved, setSvcSaved] = useState(false);
+
+  function toggleSvc(id: string) {
+    setSelectedSvc((prev) => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  }
+  function toggleCat(cat: string) {
+    setOpenCats((prev) => {
+      const next = new Set(prev);
+      next.has(cat) ? next.delete(cat) : next.add(cat);
+      return next;
+    });
+  }
+
+  async function saveServices() {
+    setError(null);
+    setSavingSvc(true);
+    const selectedIds = Array.from(selectedSvc);
+    const rows = selectedIds.map((cid) => ({
+      business_id: business.id,
+      catalog_service_id: cid,
+      price: parseFloat(svcPrices[cid] ?? "") || 0,
+      duration_minutes: 30,
+    }));
+    let ok = true;
+    if (rows.length) {
+      const { error: upErr } = await supabase
+        .from("business_services")
+        .upsert(rows, { onConflict: "business_id,catalog_service_id" });
+      if (upErr) { setError("No se pudieron guardar los servicios: " + upErr.message); ok = false; }
+    }
+    if (ok) {
+      const toRemove = services.map((s) => s.catalog_service_id).filter((cid) => !selectedSvc.has(cid));
+      for (const cid of toRemove) {
+        const { error: delErr } = await supabase
+          .from("business_services")
+          .delete()
+          .eq("business_id", business.id)
+          .eq("catalog_service_id", cid);
+        if (delErr) { setError("No se pudo quitar un servicio: " + delErr.message); ok = false; break; }
+      }
+    }
+    setSavingSvc(false);
+    if (ok) {
+      setSvcSaved(true);
+      setTimeout(() => setSvcSaved(false), 2500);
+      router.refresh();
+    }
+  }
 
   async function uploadImage(file: File, prefix: string): Promise<string | null> {
     const ext = (file.name.split(".").pop() || "jpg").toLowerCase();
@@ -751,7 +829,7 @@ function SettingsView({
     <div>
       <button
         onClick={onBack}
-        className="font-body inline-flex items-center gap-1.5 text-sm font-medium mb-5 px-3 py-1.5 rounded-full"
+        className="font-body flex w-fit items-center gap-1.5 text-sm font-medium mb-5 px-3 py-1.5 rounded-full"
         style={{ color: theme.accentRing, border: `1px solid ${theme.accentRing}` }}
       >
         <ChevronLeft className="w-4 h-4" />
@@ -877,6 +955,84 @@ function SettingsView({
           {addingStaff ? "Agregando…" : "Agregar"}
         </button>
       </div>
+
+      {/* Servicios / cortes */}
+      <div className="flex items-center justify-between mt-8 mb-1">
+        <h2 className="font-display text-lg" style={{ color: theme.textPrimary }}>{isBarber ? "Tus cortes y servicios" : "Tus servicios"}</h2>
+        <span className="font-body text-xs font-semibold px-2 py-0.5 rounded-full" style={{ background: theme.chipBg, color: theme.accentRing }}>
+          {selectedSvc.size} activos
+        </span>
+      </div>
+      <p className="font-body text-xs mb-3" style={{ color: theme.textMuted }}>Marca lo que ofreces, ponle precio y guarda. Desmarca para quitarlo.</p>
+
+      <div className="space-y-2">
+        {catGroups.map((group) => {
+          const isOpen = openCats.has(group.category);
+          const activeInCat = group.items.filter((it) => selectedSvc.has(it.id)).length;
+          return (
+            <div key={group.category} className="rounded-xl overflow-hidden" style={{ border: `1px solid ${theme.cardBorder}` }}>
+              <button
+                type="button"
+                onClick={() => toggleCat(group.category)}
+                className="w-full flex items-center justify-between px-3 py-3"
+                style={{ background: theme.cardBg }}
+              >
+                <span className="font-body text-sm font-medium" style={{ color: theme.textPrimary }}>
+                  {group.category}
+                  {activeInCat > 0 && <span className="ml-2" style={{ color: theme.accentRing }}>· {activeInCat}</span>}
+                </span>
+                <ChevronRight className="w-4 h-4 transition-transform" style={{ color: theme.textMuted, transform: isOpen ? "rotate(90deg)" : "rotate(0deg)" }} />
+              </button>
+
+              {isOpen && (
+                <div className="p-2 space-y-1.5" style={{ background: theme.cardBg }}>
+                  {group.items.map((item) => {
+                    const active = selectedSvc.has(item.id);
+                    return (
+                      <div key={item.id} className="flex items-center gap-3 rounded-lg px-2.5 py-2" style={{ background: active ? theme.chipBg : "transparent" }}>
+                        <button
+                          type="button"
+                          onClick={() => toggleSvc(item.id)}
+                          className="w-5 h-5 rounded-md flex items-center justify-center shrink-0"
+                          style={{ background: active ? theme.accentRing : "transparent", border: `1px solid ${active ? theme.accentRing : theme.cardBorder}` }}
+                        >
+                          {active && <CheckIcon className="w-3 h-3" style={{ color: theme.buttonText }} />}
+                        </button>
+                        <span className="font-body text-sm flex-1" style={{ color: theme.textPrimary }}>{item.name}</span>
+                        {active && (
+                          <input
+                            inputMode="numeric"
+                            value={svcPrices[item.id] ?? ""}
+                            onChange={(e) => setSvcPrices((p) => ({ ...p, [item.id]: e.target.value }))}
+                            placeholder="RD$"
+                            className="font-body text-sm w-16 px-2 py-1 rounded-lg outline-none text-right"
+                            style={{ background: theme.chipBg, border: `1px solid ${theme.cardBorder}`, color: theme.textPrimary }}
+                          />
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          );
+        })}
+        {catGroups.length === 0 && (
+          <div className="rounded-2xl p-4 text-center" style={{ background: theme.cardBg, border: `1px solid ${theme.cardBorder}` }}>
+            <p className="font-body text-sm" style={{ color: theme.textMuted }}>No hay catálogo de servicios disponible.</p>
+          </div>
+        )}
+      </div>
+
+      <button
+        onClick={saveServices}
+        disabled={savingSvc}
+        className="font-body w-full flex items-center justify-center gap-2 py-3 rounded-xl font-semibold mt-3 disabled:opacity-50"
+        style={{ background: svcSaved ? "rgba(63,191,127,0.16)" : `linear-gradient(135deg, ${theme.accentFrom}, ${theme.accentTo})`, color: svcSaved ? "#3FBF7F" : theme.buttonText, border: svcSaved ? "1px solid #3FBF7F" : "none" }}
+      >
+        {savingSvc ? <Loader2 className="w-4 h-4 animate-spin" /> : svcSaved ? <CheckIcon className="w-4 h-4" /> : <Save className="w-4 h-4" />}
+        {savingSvc ? "Guardando…" : svcSaved ? "Servicios guardados ✓" : "Guardar servicios"}
+      </button>
     </div>
   );
 }
@@ -890,12 +1046,16 @@ export default function OperationsPanel({
   initialAppointments,
   clientsRegistered,
   today,
+  catalog,
+  services,
 }: {
   business: Business;
   staff: Staff[];
   initialAppointments: RawAppointment[];
   clientsRegistered: number;
   today: string;
+  catalog: CatalogItem[];
+  services: BusinessService[];
 }) {
   const supabase = createClient();
   const theme = getTheme(business.type);
@@ -999,6 +1159,8 @@ export default function OperationsPanel({
             theme={theme}
             business={business}
             staff={staff}
+            catalog={catalog}
+            services={services}
             onBack={() => setView("dashboard")}
           />
         ) : (

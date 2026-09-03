@@ -48,7 +48,7 @@ export default async function DashboardPage() {
 
   const todayKey = new Date().toISOString().slice(0, 10);
 
-  const [{ data: staff }, { data: appointments }, { count: clientsCount }] = await Promise.all([
+  const [{ data: staff }, { data: appointments }, { count: clientsCount }, { data: catalog }, { data: services }] = await Promise.all([
     supabase
       .from("staff")
       .select("id, name, specialty, photo_url")
@@ -70,6 +70,16 @@ export default async function DashboardPage() {
       .from("client_business")
       .select("id", { count: "exact", head: true })
       .eq("business_id", business.id),
+    supabase
+      .from("services_catalog")
+      .select("id, category, name")
+      .eq("type", business.type)
+      .order("category", { ascending: true })
+      .order("name", { ascending: true }),
+    supabase
+      .from("business_services")
+      .select("catalog_service_id, price")
+      .eq("business_id", business.id),
   ]);
 
   return (
@@ -79,6 +89,8 @@ export default async function DashboardPage() {
       initialAppointments={(appointments ?? []) as any}
       clientsRegistered={clientsCount ?? 0}
       today={todayKey}
+      catalog={(catalog ?? []) as any}
+      services={(services ?? []) as any}
     />
   );
 }
