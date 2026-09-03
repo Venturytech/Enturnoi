@@ -118,7 +118,7 @@ export default async function DashboardPage() {
 
   const todayKey = new Date().toISOString().slice(0, 10);
 
-  const [{ data: staff }, { data: appointments }, { count: clientsCount }, { data: catalog }, { data: services }] = await Promise.all([
+  const [{ data: staff }, { data: appointments }, { count: clientsCount }, { count: pendingCount }, { data: catalog }, { data: services }] = await Promise.all([
     supabase
       .from("staff")
       .select("id, name, specialty, photo_url")
@@ -140,6 +140,12 @@ export default async function DashboardPage() {
       .from("client_business")
       .select("id", { count: "exact", head: true })
       .eq("business_id", business.id),
+    supabase
+      .from("appointments")
+      .select("id", { count: "exact", head: true })
+      .eq("business_id", business.id)
+      .in("status", ["scheduled", "present"])
+      .gte("appt_date", todayKey),
     supabase
       .from("services_catalog")
       .select("id, category, name")
@@ -163,6 +169,7 @@ export default async function DashboardPage() {
       services={(services ?? []) as any}
       isAdmin={isAdmin}
       subscriptionEndsAt={business.subscription_ends_at ?? null}
+      pendingCount={pendingCount ?? 0}
     />
   );
 }

@@ -7,7 +7,7 @@ import {
   CalendarDays, ChevronLeft, ChevronRight, Ban, CheckCheck,
   Bell, BarChart3, DollarSign, Share2, Check as CheckIcon, Tv,
   Settings, Plus, Trash2, ImagePlus, Loader2, Save, UserRound,
-  QrCode, Printer, Download, Shield,
+  QrCode, Printer, Download, Shield, MessageCircle, Search, Phone,
 } from "lucide-react";
 import { QRCodeCanvas } from "qrcode.react";
 import { createClient } from "@/lib/supabase/client";
@@ -1287,6 +1287,156 @@ function TvLinkView({
 }
 
 // ---------------------------------------------------------------
+// WhatsApp: arma el link wa.me con el teléfono normalizado (RD) y el
+// mensaje ya escrito, para que el dueño solo toque "enviar".
+// ---------------------------------------------------------------
+function waLink(phone: string, message: string): string {
+  let d = (phone || "").replace(/\D/g, "");
+  if (d.length === 10 && (d.startsWith("809") || d.startsWith("829") || d.startsWith("849"))) d = "1" + d;
+  return `https://wa.me/${d}?text=${encodeURIComponent(message)}`;
+}
+function fmtApptDate(d: string) {
+  return new Date(d + "T00:00:00").toLocaleDateString("es-DO", { weekday: "short", day: "numeric", month: "short" });
+}
+
+// ---------------------------------------------------------------
+// Clientes: lista completa (nombre + teléfono) con buscador y botón
+// de WhatsApp por cliente.
+// ---------------------------------------------------------------
+type ClientRow = { client_id: string; name: string; phone: string; appts_count: number };
+
+function ClientsView({ theme, businessId, businessName, onBack }: { theme: Theme; businessId: string; businessName: string; onBack: () => void }) {
+  const supabase = createClient();
+  const [rows, setRows] = useState<ClientRow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState("");
+
+  useEffect(() => {
+    supabase.rpc("owner_list_clients", { p_business_id: businessId }).then(({ data }) => {
+      setRows((data ?? []) as ClientRow[]);
+      setLoading(false);
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const q = search.trim().toLowerCase();
+  const filtered = rows.filter((r) => q === "" || r.name.toLowerCase().includes(q) || r.phone.includes(q));
+
+  return (
+    <div>
+      <button onClick={onBack} className="font-body flex w-fit items-center gap-1.5 text-sm font-medium mb-5 px-3 py-1.5 rounded-full" style={{ color: theme.accentRing, border: `1px solid ${theme.accentRing}` }}>
+        <ChevronLeft className="w-4 h-4" /> Volver a operaciones
+      </button>
+      <span className="font-body text-[11px] font-semibold tracking-wider" style={{ color: theme.accentRing }}>CLIENTES</span>
+      <h1 className="font-display text-2xl mb-1" style={{ color: theme.textPrimary }}>Tus clientes</h1>
+      <p className="font-body text-sm mb-4" style={{ color: theme.textMuted }}>{rows.length} en total. Toca WhatsApp para escribirle.</p>
+
+      <div className="relative mb-4">
+        <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2" style={{ color: theme.textMuted }} />
+        <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Buscar por nombre o teléfono…" className="font-body w-full text-sm rounded-xl pl-9 pr-3 py-2.5 outline-none" style={{ background: theme.chipBg, border: `1px solid ${theme.cardBorder}`, color: theme.textPrimary }} />
+      </div>
+
+      {loading ? (
+        <p className="font-body text-sm" style={{ color: theme.textMuted }}>Cargando…</p>
+      ) : (
+        <div className="space-y-2">
+          {filtered.map((c) => (
+            <div key={c.client_id} className="rounded-2xl p-3 flex items-center gap-3" style={{ background: theme.cardBg, border: `1px solid ${theme.cardBorder}` }}>
+              <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0 font-display text-sm" style={{ background: theme.chipBg, color: theme.accentRing }}>
+                {c.name.split(" ").map((n) => n[0]).join("").slice(0, 2).toUpperCase()}
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="font-body text-sm font-semibold truncate" style={{ color: theme.textPrimary }}>{c.name}</p>
+                <p className="font-body text-xs" style={{ color: theme.textMuted }}>{c.phone} · {c.appts_count} cita{c.appts_count === 1 ? "" : "s"}</p>
+              </div>
+              <a href={waLink(c.phone, `Hola ${c.name.split(" ")[0]}, te saluda ${businessName}. `)} target="_blank" rel="noopener noreferrer" className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ background: "rgba(37,211,102,0.16)", color: "#25D366" }} aria-label="WhatsApp">
+                <MessageCircle className="w-4 h-4" />
+              </a>
+            </div>
+          ))}
+          {filtered.length === 0 && (
+            <div className="rounded-2xl p-6 text-center" style={{ background: theme.cardBg, border: `1px solid ${theme.cardBorder}` }}>
+              <p className="font-body text-sm" style={{ color: theme.textMuted }}>{q ? "Sin resultados." : "Aún no tienes clientes."}</p>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------
+// Citas pendientes (cualquier fecha) con cliente, teléfono y botón de
+// WhatsApp para confirmar.
+// ---------------------------------------------------------------
+type PendingRow = { appt_id: string; client_name: string; client_phone: string; staff_name: string | null; service_name: string | null; appt_date: string; appt_time: string; status: string };
+
+function CitasView({ theme, businessId, businessName, onBack }: { theme: Theme; businessId: string; businessName: string; onBack: () => void }) {
+  const supabase = createClient();
+  const [rows, setRows] = useState<PendingRow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState("");
+
+  useEffect(() => {
+    supabase.rpc("owner_pending_appointments", { p_business_id: businessId }).then(({ data }) => {
+      setRows((data ?? []) as PendingRow[]);
+      setLoading(false);
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const q = search.trim().toLowerCase();
+  const filtered = rows.filter((r) => q === "" || r.client_name.toLowerCase().includes(q) || r.client_phone.includes(q));
+
+  return (
+    <div>
+      <button onClick={onBack} className="font-body flex w-fit items-center gap-1.5 text-sm font-medium mb-5 px-3 py-1.5 rounded-full" style={{ color: theme.accentRing, border: `1px solid ${theme.accentRing}` }}>
+        <ChevronLeft className="w-4 h-4" /> Volver a operaciones
+      </button>
+      <span className="font-body text-[11px] font-semibold tracking-wider" style={{ color: theme.accentRing }}>CITAS</span>
+      <h1 className="font-display text-2xl mb-1" style={{ color: theme.textPrimary }}>Citas pendientes</h1>
+      <p className="font-body text-sm mb-4" style={{ color: theme.textMuted }}>{rows.length} pendiente{rows.length === 1 ? "" : "s"} (de hoy en adelante).</p>
+
+      <div className="relative mb-4">
+        <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2" style={{ color: theme.textMuted }} />
+        <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Buscar por nombre o teléfono…" className="font-body w-full text-sm rounded-xl pl-9 pr-3 py-2.5 outline-none" style={{ background: theme.chipBg, border: `1px solid ${theme.cardBorder}`, color: theme.textPrimary }} />
+      </div>
+
+      {loading ? (
+        <p className="font-body text-sm" style={{ color: theme.textMuted }}>Cargando…</p>
+      ) : (
+        <div className="space-y-2">
+          {filtered.map((a) => {
+            const when = `${fmtApptDate(a.appt_date)} a las ${toDisplayTime(a.appt_time)}`;
+            const msg = `Hola ${a.client_name.split(" ")[0]}, te recordamos tu cita en ${businessName} el ${when}. ¿Nos confirmas que vas a venir?`;
+            return (
+              <div key={a.appt_id} className="rounded-2xl p-3 flex items-center gap-3" style={{ background: theme.cardBg, border: `1px solid ${theme.cardBorder}` }}>
+                <div className="flex-1 min-w-0">
+                  <p className="font-body text-sm font-semibold truncate" style={{ color: theme.textPrimary }}>{a.client_name}</p>
+                  <p className="font-body text-xs" style={{ color: theme.textMuted }}>{a.client_phone}</p>
+                  <p className="font-body text-xs mt-0.5" style={{ color: theme.accentRing }}>
+                    {a.status === "present" ? "En cola hoy" : `${fmtApptDate(a.appt_date)} · ${toDisplayTime(a.appt_time)}`}
+                    {a.service_name ? ` · ${a.service_name}` : ""}{a.staff_name ? ` · ${a.staff_name}` : ""}
+                  </p>
+                </div>
+                <a href={waLink(a.client_phone, msg)} target="_blank" rel="noopener noreferrer" className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ background: "rgba(37,211,102,0.16)", color: "#25D366" }} aria-label="WhatsApp">
+                  <MessageCircle className="w-4 h-4" />
+                </a>
+              </div>
+            );
+          })}
+          {filtered.length === 0 && (
+            <div className="rounded-2xl p-6 text-center" style={{ background: theme.cardBg, border: `1px solid ${theme.cardBorder}` }}>
+              <p className="font-body text-sm" style={{ color: theme.textMuted }}>{q ? "Sin resultados." : "No hay citas pendientes."}</p>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------
 // Panel principal
 // ---------------------------------------------------------------
 export default function OperationsPanel({
@@ -1299,6 +1449,7 @@ export default function OperationsPanel({
   services,
   isAdmin = false,
   subscriptionEndsAt = null,
+  pendingCount = 0,
 }: {
   business: Business;
   staff: Staff[];
@@ -1309,6 +1460,7 @@ export default function OperationsPanel({
   services: BusinessService[];
   isAdmin?: boolean;
   subscriptionEndsAt?: string | null;
+  pendingCount?: number;
 }) {
   const supabase = createClient();
   const theme = getTheme(business.type);
@@ -1332,7 +1484,7 @@ export default function OperationsPanel({
           ? { text: `Te quedan ${subRemaining} de suscripción`, color: "#F0C567", bg: "rgba(224,169,59,0.14)" }
           : { text: `Suscripción al día · ${subRemaining}`, color: "#3FBF7F", bg: "rgba(63,191,127,0.12)" };
 
-  const [view, setView] = useState<"dashboard" | "calendar" | "report" | "appointments" | "settings" | "qr" | "notify" | "tv">("dashboard");
+  const [view, setView] = useState<"dashboard" | "calendar" | "report" | "appointments" | "settings" | "qr" | "notify" | "tv" | "clients" | "citas">("dashboard");
   const [appointments, setAppointments] = useState<ViewAppointment[]>(initialAppointments.map(toViewAppointment));
   const [notified, setNotified] = useState<string | null>(null);
   const [linkCopied, setLinkCopied] = useState(false);
@@ -1465,6 +1617,10 @@ export default function OperationsPanel({
               </div>
             )}
           </div>
+        ) : view === "clients" ? (
+          <ClientsView theme={theme} businessId={business.id} businessName={business.name} onBack={() => setView("dashboard")} />
+        ) : view === "citas" ? (
+          <CitasView theme={theme} businessId={business.id} businessName={business.name} onBack={() => setView("dashboard")} />
         ) : view === "tv" ? (
           <TvLinkView theme={theme} tvUrl={tvUrl} onBack={() => setView("dashboard")} />
         ) : view === "qr" ? (
@@ -1505,23 +1661,27 @@ export default function OperationsPanel({
               </button>
             </div>
 
-            {/* Métricas compactas en una sola fila para que quepa todo en una vista */}
+            {/* Métricas como filtro: tocar abre la lista con teléfono + WhatsApp */}
             <div className="flex items-stretch rounded-2xl mt-4 overflow-hidden" style={{ background: theme.cardBg, border: `1px solid ${theme.cardBorder}` }}>
-              <div className="flex-1 flex items-center gap-2.5 px-4 py-3">
-                <Users className="w-4 h-4 shrink-0" style={{ color: theme.accentRing }} />
-                <div className="min-w-0">
-                  <p className="font-display text-xl leading-none" style={{ color: theme.textPrimary }}>{clientsRegistered}</p>
-                  <p className="font-body text-[11px] mt-0.5" style={{ color: theme.textMuted }}>Clientes</p>
+              <button onClick={() => setView("clients")} className="flex-1 flex items-center gap-3 px-4 py-3.5 text-left">
+                <div className="w-9 h-9 rounded-lg flex items-center justify-center shrink-0" style={{ background: theme.chipBg }}>
+                  <Users className="w-4 h-4" style={{ color: theme.accentRing }} />
                 </div>
-              </div>
+                <div className="min-w-0">
+                  <p className="font-display text-2xl leading-none" style={{ color: theme.textPrimary }}>{clientsRegistered}</p>
+                  <p className="font-body text-xs font-semibold mt-1" style={{ color: theme.accentRing }}>Clientes ›</p>
+                </div>
+              </button>
               <div className="w-px my-3" style={{ background: theme.divider }} />
-              <div className="flex-1 flex items-center gap-2.5 px-4 py-3">
-                <CalendarClock className="w-4 h-4 shrink-0" style={{ color: theme.accentRing }} />
-                <div className="min-w-0">
-                  <p className="font-display text-xl leading-none" style={{ color: theme.textPrimary }}>{appointments.length}</p>
-                  <p className="font-body text-[11px] mt-0.5" style={{ color: theme.textMuted }}>Citas hoy</p>
+              <button onClick={() => setView("citas")} className="flex-1 flex items-center gap-3 px-4 py-3.5 text-left">
+                <div className="w-9 h-9 rounded-lg flex items-center justify-center shrink-0" style={{ background: theme.chipBg }}>
+                  <CalendarClock className="w-4 h-4" style={{ color: theme.accentRing }} />
                 </div>
-              </div>
+                <div className="min-w-0">
+                  <p className="font-display text-2xl leading-none" style={{ color: theme.textPrimary }}>{pendingCount}</p>
+                  <p className="font-body text-xs font-semibold mt-1" style={{ color: theme.accentRing }}>Citas ›</p>
+                </div>
+              </button>
             </div>
 
             {/* Accesos en cuadrícula compacta: no crecen al sumar barberos */}
