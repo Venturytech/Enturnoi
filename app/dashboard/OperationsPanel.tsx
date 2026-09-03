@@ -1298,6 +1298,7 @@ export default function OperationsPanel({
   catalog,
   services,
   isAdmin = false,
+  subscriptionEndsAt = null,
 }: {
   business: Business;
   staff: Staff[];
@@ -1307,10 +1308,23 @@ export default function OperationsPanel({
   catalog: CatalogItem[];
   services: BusinessService[];
   isAdmin?: boolean;
+  subscriptionEndsAt?: string | null;
 }) {
   const supabase = createClient();
   const theme = getTheme(business.type);
   const isBarber = business.type === "barber";
+
+  const subDaysLeft = subscriptionEndsAt
+    ? Math.round((new Date(subscriptionEndsAt + "T00:00:00").getTime() - new Date(new Date().toDateString()).getTime()) / 86400000)
+    : null;
+  const subChip =
+    subDaysLeft === null
+      ? null
+      : subDaysLeft < 0
+        ? { text: "Suscripción vencida", color: "#F19391", bg: "rgba(220,80,80,0.14)" }
+        : subDaysLeft <= 5
+          ? { text: `Suscripción: ${subDaysLeft} día${subDaysLeft === 1 ? "" : "s"}`, color: "#F0C567", bg: "rgba(224,169,59,0.14)" }
+          : { text: `Suscripción: ${subDaysLeft} días`, color: "#3FBF7F", bg: "rgba(63,191,127,0.12)" };
 
   const [view, setView] = useState<"dashboard" | "calendar" | "report" | "appointments" | "settings" | "qr" | "notify" | "tv">("dashboard");
   const [appointments, setAppointments] = useState<ViewAppointment[]>(initialAppointments.map(toViewAppointment));
@@ -1469,6 +1483,11 @@ export default function OperationsPanel({
               <div>
                 <span className="font-body text-[11px] font-semibold tracking-wider" style={{ color: theme.accentRing }}>OPERACIONES</span>
                 <h1 className="font-display text-lg mt-0.5" style={{ color: theme.textPrimary }}>Tu negocio hoy</h1>
+                {subChip && (
+                  <span className="font-body text-[10px] font-medium px-2 py-0.5 rounded-full inline-block mt-1" style={{ background: subChip.bg, color: subChip.color }}>
+                    {subChip.text}
+                  </span>
+                )}
               </div>
               <button
                 onClick={() => setView("settings")}

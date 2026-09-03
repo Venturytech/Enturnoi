@@ -23,7 +23,26 @@ type BusinessRow = {
   owner_role: Role;
   created_at: string;
   clients_count: number;
+  subscription_ends_at: string | null;
 };
+
+// Días que faltan para el vencimiento (negativo = ya venció).
+function daysLeft(endsAt: string | null): number | null {
+  if (!endsAt) return null;
+  const end = new Date(endsAt + "T00:00:00");
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  return Math.round((end.getTime() - today.getTime()) / 86400000);
+}
+
+function subLabel(endsAt: string | null): { text: string; bg: string; color: string } {
+  const d = daysLeft(endsAt);
+  if (d === null) return { text: "Sin suscripción", bg: "#2a2318", color: "#8a8072" };
+  if (d < 0) return { text: `Vencida hace ${-d} día${-d === 1 ? "" : "s"}`, bg: "#3a1c1c", color: "#F19391" };
+  if (d === 0) return { text: "Vence hoy", bg: "#3a1c1c", color: "#F19391" };
+  if (d <= 5) return { text: `Vence en ${d} día${d === 1 ? "" : "s"}`, bg: "#3a2f18", color: "#F0C567" };
+  return { text: `Vence en ${d} días`, bg: "#173a2a", color: "#7BE3AB" };
+}
 
 type Detail = {
   clients_count: number;
@@ -87,7 +106,7 @@ function StatusBadge({ status }: { status: BusinessRow["status"] }) {
 }
 
 function BusinessCard({
-  biz, busy, expanded, detail, currentUserId, isSuperadmin, onToggleStatus, onDelete, onToggleDetail, onChangeRole, roleBusy,
+  biz, busy, expanded, detail, currentUserId, isSuperadmin, onToggleStatus, onDelete, onToggleDetail, onChangeRole, onAddMonths, roleBusy, subBusy,
 }: {
   biz: BusinessRow;
   busy: boolean;
@@ -99,11 +118,14 @@ function BusinessCard({
   onDelete: (biz: BusinessRow) => void;
   onToggleDetail: (biz: BusinessRow) => void;
   onChangeRole: (userId: string, role: Role) => void;
+  onAddMonths: (biz: BusinessRow, months: number) => void;
   roleBusy: boolean;
+  subBusy: boolean;
 }) {
   const isBarber = biz.type === "barber";
   const typeColor = isBarber ? { from: "#C0293A", to: "#2C4A87" } : { from: "#E5AEC0", to: "#9B6B90" };
   const isOwn = biz.owner_id === currentUserId;
+  const sub = subLabel(biz.subscription_ends_at);
 
   return (
     <div className="rounded-2xl p-4" style={{ background: "#141210", border: "1px solid #29231a" }}>
@@ -123,6 +145,9 @@ function BusinessCard({
             </span>
             <span className="font-body text-[10px] px-1.5 py-0.5 rounded-full inline-flex items-center gap-1" style={{ background: "#2a2318", color: "#c4b89f" }}>
               <Users className="w-2.5 h-2.5" /> {biz.clients_count} cliente{biz.clients_count === 1 ? "" : "s"}
+            </span>
+            <span className="font-body text-[10px] px-1.5 py-0.5 rounded-full" style={{ background: sub.bg, color: sub.color }}>
+              {sub.text}
             </span>
           </div>
         </div>
@@ -175,6 +200,27 @@ function BusinessCard({
                 Este mes: {detail.month_attended} atendidos · RD${detail.month_revenue}. Total histórico: {detail.attended_total} atendidos · RD${detail.revenue_total}.
               </p>
 
+              {/* Suscripción: vencimiento + sumar meses pagados */}
+              <div className="mt-4 rounded-xl p-3" style={{ background: "#0f0d0b", border: "1px solid #29231a" }}>
+                <div className="flex items-center justify-between gap-2 mb-1">
+                  <span className="font-body text-xs" style={{ color: "#c4b89f" }}>Suscripción</span>
+                  <span className="font-body text-[11px] font-medium px-2 py-0.5 rounded-full" style={{ background: sub.bg, color: sub.color }}>{sub.text}</span>
+                </div>
+                {biz.subscription_ends_at && (
+                  <p className="font-body text-[11px] mb-2" style={{ color: "#6b6355" }}>
+                    Vence el {new Date(biz.subscription_ends_at + "T00:00:00").toLocaleDateString("es-DO", { day: "numeric", month: "long", year: "numeric" })}
+                  </p>
+                )}
+                <p className="font-body text-[11px] mb-2" style={{ color: "#8a8072" }}>Cuando pague, súmale meses (reactiva y registra el pago):</p>
+                <div className="flex gap-2">
+                  {[1, 2, 3].map((m) => (
+                    <button key={m} onClick={() => onAddMonths(biz, m)} disabled={subBusy} className="font-body flex-1 text-xs font-semibold py-2 rounded-lg disabled:opacity-40" style={{ background: "#332813", color: "#F0C567", border: "1px solid #4a3a1f" }}>
+                      +{m} {m === 1 ? "mes" : "meses"}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
               {isSuperadmin && (
                 <div className="mt-4 rounded-xl p-3" style={{ background: "#0f0d0b", border: "1px solid #29231a" }}>
                   <div className="flex items-center justify-between gap-2 mb-2">
@@ -214,8 +260,12 @@ export default function AdminPanelClient({ isSuperadmin, currentUserId }: { isSu
   const [roleBusyId, setRoleBusyId] = useState<string | null>(null);
 
   const [contactPhone, setContactPhone] = useState("");
-  const [savingPhone, setSavingPhone] = useState(false);
-  const [phoneSaved, setPhoneSaved] = useState(false);
+  const [price, setPrice] = useState("");
+  const [trialDays, setTrialDays] = useState("");
+  const [savingSettings, setSavingSettings] = useState(false);
+  const [settingsSaved, setSettingsSaved] = useState(false);
+  const [revenue, setRevenue] = useState<{ month: number; all: number } | null>(null);
+  const [subBusyId, setSubBusyId] = useState<string | null>(null);
 
   async function load() {
     setLoading(true);
@@ -224,31 +274,67 @@ export default function AdminPanelClient({ isSuperadmin, currentUserId }: { isSu
     setLoading(false);
   }
 
-  async function loadPhone() {
-    const { data } = await supabase.from("app_settings").select("value").eq("key", "contact_phone").maybeSingle();
-    setContactPhone(data?.value ?? "");
+  async function loadRevenue() {
+    const { data } = await supabase.rpc("admin_revenue_summary");
+    const r = data && data[0];
+    if (r) setRevenue({ month: Number(r.month_total), all: Number(r.all_total) });
   }
 
-  async function savePhone() {
-    setSavingPhone(true);
-    const { error } = await supabase.rpc("admin_set_contact_phone", { p_phone: contactPhone.trim() });
-    setSavingPhone(false);
-    if (error) { alert(error.message || "No se pudo guardar el teléfono."); return; }
-    setPhoneSaved(true);
-    setTimeout(() => setPhoneSaved(false), 2500);
+  async function loadSettings() {
+    const { data } = await supabase.from("app_settings").select("key, value");
+    const map: Record<string, string> = {};
+    (data ?? []).forEach((r: any) => { map[r.key] = r.value; });
+    setContactPhone(map["contact_phone"] ?? "");
+    setPrice(map["subscription_price"] ?? "");
+    setTrialDays(map["trial_days"] ?? "");
+  }
+
+  async function saveSettings() {
+    setSavingSettings(true);
+    const calls = [
+      supabase.rpc("admin_set_setting", { p_key: "contact_phone", p_value: contactPhone.trim() }),
+      supabase.rpc("admin_set_setting", { p_key: "subscription_price", p_value: (price.trim() || "0") }),
+      supabase.rpc("admin_set_setting", { p_key: "trial_days", p_value: (trialDays.trim() || "14") }),
+    ];
+    const results = await Promise.all(calls);
+    setSavingSettings(false);
+    const err = results.find((r) => r.error);
+    if (err?.error) { alert(err.error.message || "No se pudo guardar."); return; }
+    setSettingsSaved(true);
+    setTimeout(() => setSettingsSaved(false), 2500);
+  }
+
+  async function addMonths(biz: BusinessRow, months: number) {
+    setSubBusyId(biz.id);
+    const { data, error } = await supabase.rpc("admin_add_months", { p_business_id: biz.id, p_months: months });
+    if (error) {
+      alert(error.message || "No se pudo registrar el pago.");
+    } else {
+      const newEnd = data as unknown as string;
+      setBusinesses((prev) => prev.map((b) => (b.id === biz.id ? { ...b, status: "active", subscription_ends_at: newEnd } : b)));
+      loadRevenue();
+    }
+    setSubBusyId(null);
   }
 
   useEffect(() => {
     load();
-    if (isSuperadmin) loadPhone();
+    loadRevenue();
+    loadSettings();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   async function toggleStatus(biz: BusinessRow) {
     setBusyId(biz.id);
-    const nextStatus = biz.status === "active" ? "suspended" : "active";
-    const { error } = await supabase.from("businesses").update({ status: nextStatus }).eq("id", biz.id);
-    if (!error) setBusinesses((prev) => prev.map((b) => (b.id === biz.id ? { ...b, status: nextStatus } : b)));
+    if (biz.status === "pending") {
+      // Aprobar: activa y le da el periodo de prueba.
+      const { data, error } = await supabase.rpc("admin_grant_trial", { p_business_id: biz.id });
+      if (!error) setBusinesses((prev) => prev.map((b) => (b.id === biz.id ? { ...b, status: "active", subscription_ends_at: data as unknown as string } : b)));
+    } else {
+      const nextStatus = biz.status === "active" ? "suspended" : "active";
+      const { error } = await supabase.from("businesses").update({ status: nextStatus }).eq("id", biz.id);
+      if (!error) setBusinesses((prev) => prev.map((b) => (b.id === biz.id ? { ...b, status: nextStatus } : b)));
+    }
     setBusyId(null);
   }
 
@@ -333,28 +419,46 @@ export default function AdminPanelClient({ isSuperadmin, currentUserId }: { isSu
           </Link>
         </div>
 
-        {/* Teléfono de contacto que verán los negocios suspendidos/en revisión */}
+        {/* Dinero cobrado por suscripciones */}
+        {revenue && (
+          <div className="rounded-2xl p-4 mt-4 flex items-center justify-between" style={{ background: "#141210", border: "1px solid #29231a" }}>
+            <div className="flex items-center gap-2">
+              <DollarSign className="w-4 h-4" style={{ color: "#7BE3AB" }} />
+              <span className="font-body text-xs" style={{ color: "#c4b89f" }}>Cobrado este mes</span>
+            </div>
+            <div className="text-right">
+              <p className="font-display text-lg leading-none" style={{ color: "#F3EBDA" }}>RD${revenue.month}</p>
+              <p className="font-body text-[10px] mt-1" style={{ color: "#8a8072" }}>Total: RD${revenue.all}</p>
+            </div>
+          </div>
+        )}
+
+        {/* Ajustes de la plataforma (superadmin): teléfono, precio y prueba */}
         {isSuperadmin && (
           <div className="rounded-2xl p-4 mt-4" style={{ background: "#141210", border: "1px solid #29231a" }}>
-            <div className="flex items-center gap-2 mb-2">
+            <div className="flex items-center gap-2 mb-3">
               <Phone className="w-3.5 h-3.5" style={{ color: "#C9962C" }} />
-              <span className="font-body text-xs font-medium" style={{ color: "#c4b89f" }}>Teléfono de contacto</span>
+              <span className="font-body text-xs font-medium" style={{ color: "#c4b89f" }}>Ajustes de la plataforma</span>
             </div>
-            <p className="font-body text-[11px] mb-3" style={{ color: "#6b6355" }}>Lo verán los negocios en revisión o suspendidos para escribirte. Puedes cambiarlo cuando quieras.</p>
-            <div className="flex gap-2">
-              <input
-                value={contactPhone}
-                onChange={(e) => setContactPhone(e.target.value)}
-                inputMode="tel"
-                placeholder="Ej. 809-000-0000"
-                className="font-body flex-1 text-sm rounded-xl px-3 py-2.5 outline-none"
-                style={{ background: "#0f0d0b", border: "1px solid #29231a", color: "#F3EBDA" }}
-              />
-              <button onClick={savePhone} disabled={savingPhone} className="font-body flex items-center justify-center gap-1.5 px-4 rounded-xl text-sm font-semibold disabled:opacity-50" style={{ background: phoneSaved ? "#173a2a" : "#C9962C", color: phoneSaved ? "#7BE3AB" : "#0A0806" }}>
-                {phoneSaved ? <CheckIcon className="w-4 h-4" /> : null}
-                {savingPhone ? "…" : phoneSaved ? "Guardado" : "Guardar"}
-              </button>
+
+            <label className="font-body text-[11px] block mb-1" style={{ color: "#8a8072" }}>Teléfono de contacto (lo ven los negocios suspendidos/en revisión)</label>
+            <input value={contactPhone} onChange={(e) => setContactPhone(e.target.value)} inputMode="tel" placeholder="Ej. 809-000-0000" className="font-body w-full text-sm rounded-xl px-3 py-2.5 mb-3 outline-none" style={{ background: "#0f0d0b", border: "1px solid #29231a", color: "#F3EBDA" }} />
+
+            <div className="grid grid-cols-2 gap-3 mb-3">
+              <div>
+                <label className="font-body text-[11px] block mb-1" style={{ color: "#8a8072" }}>Precio mensual (RD$)</label>
+                <input value={price} onChange={(e) => setPrice(e.target.value)} inputMode="numeric" placeholder="0" className="font-body w-full text-sm rounded-xl px-3 py-2.5 outline-none" style={{ background: "#0f0d0b", border: "1px solid #29231a", color: "#F3EBDA" }} />
+              </div>
+              <div>
+                <label className="font-body text-[11px] block mb-1" style={{ color: "#8a8072" }}>Días de prueba</label>
+                <input value={trialDays} onChange={(e) => setTrialDays(e.target.value)} inputMode="numeric" placeholder="14" className="font-body w-full text-sm rounded-xl px-3 py-2.5 outline-none" style={{ background: "#0f0d0b", border: "1px solid #29231a", color: "#F3EBDA" }} />
+              </div>
             </div>
+
+            <button onClick={saveSettings} disabled={savingSettings} className="font-body w-full flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-sm font-semibold disabled:opacity-50" style={{ background: settingsSaved ? "#173a2a" : "#C9962C", color: settingsSaved ? "#7BE3AB" : "#0A0806" }}>
+              {settingsSaved ? <CheckIcon className="w-4 h-4" /> : null}
+              {savingSettings ? "Guardando…" : settingsSaved ? "Guardado ✓" : "Guardar ajustes"}
+            </button>
           </div>
         )}
 
@@ -414,7 +518,9 @@ export default function AdminPanelClient({ isSuperadmin, currentUserId }: { isSu
               onDelete={deleteBusiness}
               onToggleDetail={toggleDetail}
               onChangeRole={changeRole}
+              onAddMonths={addMonths}
               roleBusy={roleBusyId === biz.owner_id}
+              subBusy={subBusyId === biz.id}
             />
           ))}
           {!loading && filtered.length === 0 && (

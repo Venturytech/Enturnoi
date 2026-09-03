@@ -24,7 +24,7 @@ export default async function DashboardPage() {
 
   const { data: business } = await supabase
     .from("businesses")
-    .select("id, name, type, status, logo_url, invite_slug, phone, address, open_time, close_time, break_start, break_end")
+    .select("id, name, type, status, logo_url, invite_slug, phone, address, open_time, close_time, break_start, break_end, subscription_ends_at")
     .eq("owner_id", user.id)
     .maybeSingle();
 
@@ -162,6 +162,7 @@ export default async function DashboardPage() {
       catalog={(catalog ?? []) as any}
       services={(services ?? []) as any}
       isAdmin={isAdmin}
+      subscriptionEndsAt={business.subscription_ends_at ?? null}
     />
   );
 }
