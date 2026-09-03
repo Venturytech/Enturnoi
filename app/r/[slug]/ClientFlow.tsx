@@ -8,8 +8,19 @@ import {
 import { createClient } from "@/lib/supabase/client";
 import { getTheme, cardShadow, type BusinessType } from "@/lib/theme";
 import { appDownloadCta } from "@/lib/appStore";
+import { hoursFromBusiness, buildDaySlots, displayHm, hmToMin, type BusinessHours } from "@/lib/hours";
 
-type Business = { id: string; name: string; type: BusinessType; logo_url: string | null; address: string | null };
+type Business = {
+  id: string;
+  name: string;
+  type: BusinessType;
+  logo_url: string | null;
+  address: string | null;
+  open_time: string | null;
+  close_time: string | null;
+  break_start: string | null;
+  break_end: string | null;
+};
 type Staff = { id: string; name: string; specialty: string | null };
 type ServiceOption = { business_service_id: string; service_name: string; price: number; duration_minutes: number };
 type QueueInfo = { staff_id: string; present_count: number; scheduled_count: number; total_minutes: number };
@@ -52,17 +63,6 @@ function forgetIdentity(slug: string) {
   localStorage.removeItem(STORAGE_PREFIX + slug);
 }
 
-const TIME_SLOTS = [
-  "8:00", "8:30", "9:00", "9:30", "10:00", "10:30", "11:00", "11:30",
-  "12:00", "12:30", "1:00", "1:30", "2:00", "2:30", "3:00", "3:30",
-  "4:00", "4:30", "5:00", "5:30", "6:00", "6:30", "7:00", "7:30",
-];
-function slotTo24(slot: string) {
-  const [hStr, m] = slot.split(":");
-  let h = parseInt(hStr, 10);
-  if (h !== 12 && h < 8) h += 12;
-  return `${String(h).padStart(2, "0")}:${m}:00`;
-}
 function formatTime(date: Date) {
   let h = date.getHours();
   const m = date.getMinutes();
@@ -87,6 +87,7 @@ export default function ClientFlow({ slug, business }: { slug: string; business:
   const supabase = useRef(createClient()).current;
   const theme = getTheme(business.type);
   const isBarber = business.type === "barber";
+  const hours = useMemo<BusinessHours>(() => hoursFromBusiness(business), [business]);
 
   const [identity, setIdentityState] = useState<Identity | null>(null);
   const [stored, setStored] = useState<Identity | null>(null);
@@ -204,6 +205,7 @@ export default function ClientFlow({ slug, business }: { slug: string; business:
             theme={theme}
             staffList={staff}
             services={services}
+            hours={hours}
             preselectedStaff={selectedStaff}
             slug={slug}
             clientId={identity.clientId}
@@ -802,11 +804,12 @@ function QueueDetail({
 // Horario (según disponibilidad real de ESE barbero) → Servicio → Confirmar
 // ---------------------------------------------------------------
 function ScheduleFuture({
-  theme, staffList, services, preselectedStaff, slug, clientId, onBack, onDone,
+  theme, staffList, services, hours, preselectedStaff, slug, clientId, onBack, onDone,
 }: {
   theme: ReturnType<typeof getTheme>;
   staffList: Staff[];
   services: ServiceOption[];
+  hours: BusinessHours;
   preselectedStaff: Staff | null;
   slug: string;
   clientId: string;
@@ -826,6 +829,7 @@ function ScheduleFuture({
   const [error, setError] = useState<string | null>(null);
 
   const days = useMemo(() => buildScheduleDays(10), []);
+  const slots = useMemo(() => buildDaySlots(hours), [hours]);
 
   useEffect(() => {
     if (step !== 3 || !staffMember || !date) return;
@@ -865,14 +869,14 @@ function ScheduleFuture({
       p_staff_id: staffMember.id,
       p_business_service_id: service.business_service_id,
       p_date: date.key,
-      p_time: slotTo24(time),
+      p_time: `${time}:00`,
     });
     setSubmitting(false);
     if (error || !data) {
       setError(error?.message?.includes("disponible") ? "Ese horario ya no está disponible, elige otro." : "No se pudo agendar, intenta de nuevo.");
       return;
     }
-    onDone({ date: `${date.label}, ${date.num}`, time, staff: staffMember.name, service: service.service_name, price: service.price });
+    onDone({ date: `${date.label}, ${date.num}`, time: displayHm(time), staff: staffMember.name, service: service.service_name, price: service.price });
   }
 
   return (
@@ -938,15 +942,11 @@ function ScheduleFuture({
             const todayKey = new Date().toISOString().slice(0, 10);
             const isToday = date.key === todayKey;
             const nowMin = new Date().getHours() * 60 + new Date().getMinutes();
-            const slotMin = (slot: string) => {
-              const [h, m] = slotTo24(slot).split(":").map(Number);
-              return h * 60 + m;
-            };
             const isDisabled = (slot: string) =>
               blockedSet.has(slot) ||
-              takenSet.has(slotTo24(slot).slice(0, 5)) ||
-              (isToday && slotMin(slot) <= nowMin);
-            const anyFree = TIME_SLOTS.some((s) => !isDisabled(s));
+              takenSet.has(slot) ||
+              (isToday && hmToMin(slot) <= nowMin);
+            const anyFree = slots.some((s) => !isDisabled(s));
 
             if (loadingSlots) {
               return <p className="font-body text-sm" style={{ color: theme.textMuted }}>Buscando horarios...</p>;
@@ -960,7 +960,7 @@ function ScheduleFuture({
             }
             return (
               <div className="grid grid-cols-3 gap-2">
-                {TIME_SLOTS.map((slot) => {
+                {slots.map((slot) => {
                   const disabled = isDisabled(slot);
                   return (
                     <button
@@ -976,7 +976,7 @@ function ScheduleFuture({
                         cursor: disabled ? "not-allowed" : "pointer",
                       }}
                     >
-                      {slot}
+                      {displayHm(slot)}
                     </button>
                   );
                 })}
@@ -989,7 +989,7 @@ function ScheduleFuture({
       {step === 4 && date && staffMember && time && (
         <>
           <h1 className="font-display text-2xl mb-1" style={{ color: theme.textPrimary }}>¿Qué servicio quieres?</h1>
-          <p className="font-body text-sm mb-5" style={{ color: theme.textMuted }}>{date.label}, {date.num} · {time} · con {staffMember.name.split(" ")[0]}</p>
+          <p className="font-body text-sm mb-5" style={{ color: theme.textMuted }}>{date.label}, {date.num} · {displayHm(time)} · con {staffMember.name.split(" ")[0]}</p>
           <div className="space-y-2">
             {services.map((s) => (
               <button key={s.business_service_id} onClick={() => pickService(s)} className="w-full rounded-xl p-3.5 flex items-center gap-3 text-left" style={{ background: theme.cardBg, border: `1px solid ${theme.cardBorder}` }}>
@@ -1014,7 +1014,7 @@ function ScheduleFuture({
             <Row label="Servicio" value={service.service_name} theme={theme} />
             <Row label="Barbero" value={staffMember.name} theme={theme} />
             <Row label="Fecha" value={`${date.label}, ${date.num}`} theme={theme} />
-            <Row label="Hora" value={time} theme={theme} />
+            <Row label="Hora" value={displayHm(time)} theme={theme} />
             <div className="h-px" style={{ background: theme.divider }} />
             <Row label="Total" value={`RD$${service.price}`} theme={theme} bold />
           </div>

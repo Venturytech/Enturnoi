@@ -13,11 +13,12 @@ import { QRCodeCanvas } from "qrcode.react";
 import { createClient } from "@/lib/supabase/client";
 import { getTheme, type BusinessType, type Theme } from "@/lib/theme";
 import { signOut } from "@/app/auth/actions";
+import { hoursFromBusiness, buildDaySlots, displayHm, HALF_HOUR_OPTIONS } from "@/lib/hours";
 
 // ---------------------------------------------------------------
 // Tipos
 // ---------------------------------------------------------------
-type Business = { id: string; name: string; type: BusinessType; status: string; logo_url: string | null; invite_slug: string; phone: string | null; address: string | null };
+type Business = { id: string; name: string; type: BusinessType; status: string; logo_url: string | null; invite_slug: string; phone: string | null; address: string | null; open_time: string | null; close_time: string | null; break_start: string | null; break_end: string | null };
 type Staff = { id: string; name: string; specialty: string | null; photo_url: string | null };
 type CatalogItem = { id: string; category: string; name: string };
 type BusinessService = { catalog_service_id: string; price: number };
@@ -216,11 +217,6 @@ function AppointmentCard({
 // ---------------------------------------------------------------
 // Calendario de disponibilidad, por barbero/estilista, real en Supabase
 // ---------------------------------------------------------------
-const TIME_SLOTS = [
-  "8:00", "8:30", "9:00", "9:30", "10:00", "10:30", "11:00", "11:30",
-  "12:00", "12:30", "1:00", "1:30", "2:00", "2:30", "3:00", "3:30",
-  "4:00", "4:30", "5:00", "5:30", "6:00", "6:30", "7:00", "7:30",
-];
 const DAY_LABELS = ["Dom", "Lun", "Mar", "Mié", "Jue", "Vie", "Sáb"];
 
 function buildDays(startOffset: number, count: number) {
@@ -235,7 +231,7 @@ function buildDays(startOffset: number, count: number) {
   return days;
 }
 
-function CalendarView({ theme, staff, onBack }: { theme: Theme; staff: Staff[]; onBack: () => void }) {
+function CalendarView({ theme, staff, business, onBack }: { theme: Theme; staff: Staff[]; business: Business; onBack: () => void }) {
   const supabase = createClient();
   const [activeStaffId, setActiveStaffId] = useState(staff[0]?.id ?? "");
   const [dayOffset, setDayOffset] = useState(0);
@@ -243,6 +239,7 @@ function CalendarView({ theme, staff, onBack }: { theme: Theme; staff: Staff[]; 
   const [blockedSet, setBlockedSet] = useState<Set<string>>(new Set());
   const [dayMarks, setDayMarks] = useState<Record<string, boolean>>({});
 
+  const slots = useMemo(() => buildDaySlots(hoursFromBusiness(business)), [business]);
   const days = useMemo(() => buildDays(dayOffset, 7), [dayOffset]);
   const activeKey = selectedDate ?? days[0].key;
 
@@ -260,7 +257,7 @@ function CalendarView({ theme, staff, onBack }: { theme: Theme; staff: Staff[]; 
 
   async function persist(next: Set<string>) {
     setBlockedSet(next);
-    setDayMarks((prev) => ({ ...prev, [activeKey]: next.size === TIME_SLOTS.length }));
+    setDayMarks((prev) => ({ ...prev, [activeKey]: next.size === slots.length }));
     await supabase
       .from("staff_availability")
       .upsert(
@@ -274,7 +271,7 @@ function CalendarView({ theme, staff, onBack }: { theme: Theme; staff: Staff[]; 
     next.has(slot) ? next.delete(slot) : next.add(slot);
     persist(next);
   };
-  const blockFullDay = () => persist(new Set(TIME_SLOTS));
+  const blockFullDay = () => persist(new Set(slots));
   const clearDay = () => persist(new Set());
 
   return (
@@ -350,8 +347,8 @@ function CalendarView({ theme, staff, onBack }: { theme: Theme; staff: Staff[]; 
       </div>
 
       <div className="rounded-2xl p-4" style={{ background: theme.cardBg, border: `1px solid ${theme.cardBorder}` }}>
-        <div className="grid grid-cols-4 gap-2">
-          {TIME_SLOTS.map((slot) => {
+        <div className="grid grid-cols-3 gap-2">
+          {slots.map((slot) => {
             const blocked = blockedSet.has(slot);
             return (
               <button
@@ -360,10 +357,15 @@ function CalendarView({ theme, staff, onBack }: { theme: Theme; staff: Staff[]; 
                 className="font-body text-xs font-medium py-3 rounded-lg"
                 style={{ background: blocked ? "#241a12" : theme.chipBg, color: blocked ? theme.textMuted : theme.accentRing, textDecoration: blocked ? "line-through" : "none" }}
               >
-                {slot}
+                {displayHm(slot)}
               </button>
             );
           })}
+          {slots.length === 0 && (
+            <p className="col-span-3 font-body text-xs text-center py-3" style={{ color: theme.textMuted }}>
+              Define tu horario de atención en “Editar negocio”.
+            </p>
+          )}
         </div>
       </div>
     </div>
@@ -638,6 +640,13 @@ function SettingsView({
   const [bizSaved, setBizSaved] = useState(false);
   const [uploadingLogo, setUploadingLogo] = useState(false);
 
+  // Horario de atención (general para todos los días)
+  const [openTime, setOpenTime] = useState((business.open_time ?? "08:00").slice(0, 5));
+  const [closeTime, setCloseTime] = useState((business.close_time ?? "20:00").slice(0, 5));
+  const [hasBreak, setHasBreak] = useState(!!(business.break_start && business.break_end));
+  const [breakStart, setBreakStart] = useState((business.break_start ?? "12:00").slice(0, 5));
+  const [breakEnd, setBreakEnd] = useState((business.break_end ?? "13:00").slice(0, 5));
+
   const [team, setTeam] = useState<Staff[]>(staff);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [newName, setNewName] = useState("");
@@ -743,10 +752,34 @@ function SettingsView({
 
   async function saveBusiness() {
     setError(null);
+    // Validación del horario
+    if (closeTime <= openTime) {
+      setError("La hora de cierre debe ser después de la de apertura.");
+      return;
+    }
+    if (hasBreak) {
+      if (breakEnd <= breakStart) {
+        setError("El descanso: la hora de fin debe ser después de la de inicio.");
+        return;
+      }
+      if (breakStart < openTime || breakEnd > closeTime) {
+        setError("El descanso debe estar dentro del horario de atención.");
+        return;
+      }
+    }
     setSavingBiz(true);
     const { error: updErr } = await supabase
       .from("businesses")
-      .update({ name: name.trim(), phone: phone.trim() || null, address: address.trim() || null, logo_url: logoUrl })
+      .update({
+        name: name.trim(),
+        phone: phone.trim() || null,
+        address: address.trim() || null,
+        logo_url: logoUrl,
+        open_time: openTime,
+        close_time: closeTime,
+        break_start: hasBreak ? breakStart : null,
+        break_end: hasBreak ? breakEnd : null,
+      })
       .eq("id", business.id);
     setSavingBiz(false);
     if (updErr) {
@@ -879,6 +912,56 @@ function SettingsView({
 
         <label className="font-body text-xs font-medium block mb-1" style={{ color: theme.textMuted }}>Dirección</label>
         <input value={address} onChange={(e) => setAddress(e.target.value)} placeholder="Ej. Calle 1, Santiago" className="font-body w-full text-sm rounded-xl px-3 py-2.5 mb-4 outline-none" style={inputStyle} />
+
+        {/* Horario de atención */}
+        <div className="h-px w-full mb-4" style={{ background: theme.divider }} />
+        <p className="font-body text-xs font-semibold tracking-wider mb-1" style={{ color: theme.accentRing }}>HORARIO DE ATENCIÓN</p>
+        <p className="font-body text-xs mb-3" style={{ color: theme.textMuted }}>El cliente solo verá horas dentro de este rango al agendar.</p>
+
+        <div className="grid grid-cols-2 gap-3 mb-3">
+          <div>
+            <label className="font-body text-xs font-medium block mb-1" style={{ color: theme.textMuted }}>Abre</label>
+            <select value={openTime} onChange={(e) => setOpenTime(e.target.value)} className="font-body w-full text-sm rounded-xl px-3 py-2.5 outline-none" style={inputStyle}>
+              {HALF_HOUR_OPTIONS.map((o) => <option key={o} value={o}>{displayHm(o)}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="font-body text-xs font-medium block mb-1" style={{ color: theme.textMuted }}>Cierra</label>
+            <select value={closeTime} onChange={(e) => setCloseTime(e.target.value)} className="font-body w-full text-sm rounded-xl px-3 py-2.5 outline-none" style={inputStyle}>
+              {HALF_HOUR_OPTIONS.map((o) => <option key={o} value={o}>{displayHm(o)}</option>)}
+            </select>
+          </div>
+        </div>
+
+        <button
+          type="button"
+          onClick={() => setHasBreak((v) => !v)}
+          className="font-body w-full flex items-center justify-between rounded-xl px-3 py-2.5 mb-3"
+          style={inputStyle}
+        >
+          <span className="text-sm" style={{ color: theme.textPrimary }}>Horario de descanso</span>
+          <span className="text-xs font-semibold px-2 py-1 rounded-full" style={{ background: hasBreak ? "rgba(63,191,127,0.16)" : theme.chipBg, color: hasBreak ? "#3FBF7F" : theme.textMuted }}>
+            {hasBreak ? "Activado" : "Desactivado"}
+          </span>
+        </button>
+
+        {hasBreak && (
+          <div className="grid grid-cols-2 gap-3 mb-4">
+            <div>
+              <label className="font-body text-xs font-medium block mb-1" style={{ color: theme.textMuted }}>Desde</label>
+              <select value={breakStart} onChange={(e) => setBreakStart(e.target.value)} className="font-body w-full text-sm rounded-xl px-3 py-2.5 outline-none" style={inputStyle}>
+                {HALF_HOUR_OPTIONS.map((o) => <option key={o} value={o}>{displayHm(o)}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="font-body text-xs font-medium block mb-1" style={{ color: theme.textMuted }}>Hasta</label>
+              <select value={breakEnd} onChange={(e) => setBreakEnd(e.target.value)} className="font-body w-full text-sm rounded-xl px-3 py-2.5 outline-none" style={inputStyle}>
+                {HALF_HOUR_OPTIONS.map((o) => <option key={o} value={o}>{displayHm(o)}</option>)}
+              </select>
+            </div>
+          </div>
+        )}
+        {!hasBreak && <div className="mb-1" />}
 
         <button
           onClick={saveBusiness}
@@ -1297,7 +1380,7 @@ export default function OperationsPanel({
 
       <div className="px-5 py-6 max-w-sm mx-auto">
         {view === "calendar" ? (
-          <CalendarView theme={theme} staff={staff} onBack={() => setView("dashboard")} />
+          <CalendarView theme={theme} staff={staff} business={business} onBack={() => setView("dashboard")} />
         ) : view === "report" ? (
           <ReportView theme={theme} businessId={business.id} onBack={() => setView("dashboard")} />
         ) : view === "appointments" ? (
