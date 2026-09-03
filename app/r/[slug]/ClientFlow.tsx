@@ -173,14 +173,12 @@ export default function ClientFlow({ slug, business }: { slug: string; business:
         .font-body { font-family: 'Inter', sans-serif; }
       `}</style>
       <div className="w-full max-w-sm">
-        {(view === "list" || view === "detail") && myQueue.length > 0 && (
-          <MyQueueBanner myQueue={myQueue} theme={theme} />
-        )}
         {view === "detail" && selectedStaff && (
           <QueueDetail
             theme={theme}
             staffMember={selectedStaff}
             info={queue[selectedStaff.id]}
+            myEntries={myQueue.filter((e) => e.staff_id === selectedStaff.id)}
             onBack={() => setView("list")}
             onSchedule={() => setView("schedule")}
             onWalkin={() => setView("walkin")}
@@ -714,11 +712,12 @@ function BarberList({
 }
 
 function QueueDetail({
-  theme, staffMember, info, onBack, onSchedule, onWalkin,
+  theme, staffMember, info, myEntries, onBack, onSchedule, onWalkin,
 }: {
   theme: ReturnType<typeof getTheme>;
   staffMember: Staff;
   info: QueueInfo | undefined;
+  myEntries: MyQueueEntry[];
   onBack: () => void;
   onSchedule: () => void;
   onWalkin: () => void;
@@ -766,7 +765,9 @@ function QueueDetail({
         </div>
       </div>
 
-      <p className="font-body text-xs mb-6" style={{ color: theme.textMuted }}>{total} en cola en total</p>
+      <p className="font-body text-xs mb-4" style={{ color: theme.textMuted }}>{total} en cola en total</p>
+
+      {myEntries.length > 0 && <MyQueueBanner myQueue={myEntries} theme={theme} />}
 
       {total === 0 ? (
         <div className="rounded-2xl p-6 text-center" style={{ background: theme.cardBg, border: `1px solid ${theme.cardBorder}` }}>
