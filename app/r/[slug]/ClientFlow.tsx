@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Scissors, Flower2, ArrowRight, ShieldCheck, ChevronLeft, ChevronRight,
   Clock, Users, CalendarDays, Check, Lock, Smartphone, Apple,
@@ -15,6 +15,23 @@ type ServiceOption = { business_service_id: string; service_name: string; price:
 type QueueInfo = { staff_id: string; present_count: number; scheduled_count: number; total_minutes: number };
 type Identity = { clientId: string; name: string; phone: string };
 type Summary = { kind: "future" | "walkin"; date?: string; time?: string; staff: string; service: string; price: number };
+type MyQueueEntry = {
+  appt_id: string;
+  staff_id: string;
+  staff_name: string;
+  service_name: string | null;
+  appt_time: string;
+  status: "present" | "scheduled";
+  queue_position: number;
+  total_in_queue: number;
+};
+
+function apptTimeToDisplay(t: string) {
+  const [h, m] = t.split(":").map(Number);
+  const ampm = h >= 12 ? "pm" : "am";
+  const h12 = h % 12 === 0 ? 12 : h % 12;
+  return `${h12}:${String(m).padStart(2, "0")} ${ampm}`;
+}
 
 const STORAGE_PREFIX = "enturnoi:client:";
 
@@ -67,7 +84,7 @@ function buildScheduleDays(count: number) {
 }
 
 export default function ClientFlow({ slug, business }: { slug: string; business: Business }) {
-  const supabase = createClient();
+  const supabase = useRef(createClient()).current;
   const theme = getTheme(business.type);
   const isBarber = business.type === "barber";
 
@@ -78,6 +95,7 @@ export default function ClientFlow({ slug, business }: { slug: string; business:
   const [staff, setStaff] = useState<Staff[]>([]);
   const [services, setServices] = useState<ServiceOption[]>([]);
   const [queue, setQueue] = useState<Record<string, QueueInfo>>({});
+  const [myQueue, setMyQueue] = useState<MyQueueEntry[]>([]);
   const [selectedStaff, setSelectedStaff] = useState<Staff | null>(null);
   const [lastConfirmed, setLastConfirmed] = useState<Summary | null>(null);
 
@@ -86,20 +104,42 @@ export default function ClientFlow({ slug, business }: { slug: string; business:
     setCheckedStorage(true);
   }, [slug]);
 
-  useEffect(() => {
+  async function loadData() {
     if (!identity) return;
-    Promise.all([
+    const [s, sv, q, mq] = await Promise.all([
       supabase.rpc("get_business_staff_by_slug", { p_slug: slug }),
       supabase.rpc("get_business_services_by_slug", { p_slug: slug }),
       supabase.rpc("get_staff_queue_today", { p_slug: slug }),
-    ]).then(([s, sv, q]) => {
-      setStaff(s.data ?? []);
-      setServices(sv.data ?? []);
-      const map: Record<string, QueueInfo> = {};
-      (q.data ?? []).forEach((row: QueueInfo) => (map[row.staff_id] = row));
-      setQueue(map);
-    });
-  }, [identity, slug]);
+      supabase.rpc("get_client_queue_today", { p_slug: slug, p_client_id: identity.clientId }),
+    ]);
+    setStaff(s.data ?? []);
+    setServices(sv.data ?? []);
+    const map: Record<string, QueueInfo> = {};
+    (q.data ?? []).forEach((row: QueueInfo) => (map[row.staff_id] = row));
+    setQueue(map);
+    setMyQueue((mq.data ?? []) as MyQueueEntry[]);
+  }
+
+  // Carga inicial + se mantiene al día: realtime sobre las citas del
+  // negocio y un refresco de respaldo cada 15s (por si el realtime cae).
+  useEffect(() => {
+    if (!identity) return;
+    loadData();
+    const channel = supabase
+      .channel(`client-queue-${business.id}`)
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "appointments", filter: `business_id=eq.${business.id}` },
+        () => loadData(),
+      )
+      .subscribe();
+    const poll = setInterval(loadData, 15000);
+    return () => {
+      supabase.removeChannel(channel);
+      clearInterval(poll);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [identity, slug, business.id]);
 
   if (!checkedStorage) return null;
 
@@ -133,6 +173,9 @@ export default function ClientFlow({ slug, business }: { slug: string; business:
         .font-body { font-family: 'Inter', sans-serif; }
       `}</style>
       <div className="w-full max-w-sm">
+        {(view === "list" || view === "detail") && myQueue.length > 0 && (
+          <MyQueueBanner myQueue={myQueue} theme={theme} />
+        )}
         {view === "detail" && selectedStaff && (
           <QueueDetail
             theme={theme}
@@ -154,6 +197,7 @@ export default function ClientFlow({ slug, business }: { slug: string; business:
             onDone={(summary) => {
               setLastConfirmed(summary);
               setView("confirmed");
+              loadData();
             }}
           />
         )}
@@ -170,6 +214,7 @@ export default function ClientFlow({ slug, business }: { slug: string; business:
               setLastConfirmed({ kind: "future", ...summary });
               setSelectedStaff(null);
               setView("confirmed");
+              loadData();
             }}
           />
         )}
@@ -243,6 +288,45 @@ function AppDownloadCta({ theme }: { theme: ReturnType<typeof getTheme> }) {
       {icon}
       {label}
     </button>
+  );
+}
+
+// ---------------------------------------------------------------
+// Aviso "estás en la cola": le muestra al cliente en su propio
+// teléfono que ya está en la fila y en qué puesto va (#N de M),
+// tanto para walk-in (present) como para cita de hoy (scheduled).
+// ---------------------------------------------------------------
+function MyQueueBanner({ myQueue, theme }: { myQueue: MyQueueEntry[]; theme: ReturnType<typeof getTheme> }) {
+  return (
+    <div className="mb-5 space-y-2">
+      {myQueue.map((e) => {
+        const isNext = e.queue_position === 1;
+        const isPresent = e.status === "present";
+        const ahead = e.queue_position - 1;
+        return (
+          <div key={e.appt_id} className="rounded-2xl p-4" style={{ background: "rgba(63,191,127,0.12)", border: "1px solid #3FBF7F" }}>
+            <div className="flex items-center justify-between gap-3">
+              <div className="min-w-0">
+                <p className="font-body text-[11px] font-semibold tracking-wider" style={{ color: "#3FBF7F" }}>ESTÁS EN LA COLA</p>
+                <p className="font-display text-lg truncate" style={{ color: theme.textPrimary }}>{e.staff_name}</p>
+                <p className="font-body text-xs truncate" style={{ color: theme.textMuted }}>
+                  {(e.service_name ?? "Servicio")}{!isPresent && e.appt_time ? ` · ${apptTimeToDisplay(e.appt_time)}` : ""}
+                </p>
+              </div>
+              <div className="text-center shrink-0 rounded-xl px-3 py-2" style={{ background: theme.chipBg }}>
+                <p className="font-display text-2xl leading-none" style={{ color: theme.textPrimary }}>#{e.queue_position}</p>
+                <p className="font-body text-[10px] mt-1" style={{ color: theme.textMuted }}>de {e.total_in_queue}</p>
+              </div>
+            </div>
+            <p className="font-body text-xs mt-2 font-semibold" style={{ color: "#3FBF7F" }}>
+              {isNext
+                ? "¡Eres el próximo! Prepárate 💈"
+                : `Hay ${ahead} ${ahead === 1 ? "persona" : "personas"} antes que tú`}
+            </p>
+          </div>
+        );
+      })}
+    </div>
   );
 }
 
