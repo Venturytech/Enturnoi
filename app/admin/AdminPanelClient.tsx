@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import {
   Users, PauseCircle, CheckCircle2, XCircle, RefreshCw,
-  Scissors, Flower2, LogOut, Store, ShieldCheck, UserCog, ChevronDown,
+  Scissors, Flower2, LogOut, ChevronDown, Search,
   DollarSign, CalendarCheck, Home,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
@@ -22,18 +22,6 @@ type BusinessRow = {
   owner_email: string;
   owner_role: Role;
   created_at: string;
-  clients_count: number;
-};
-
-type UserRow = {
-  id: string;
-  role: Role;
-  full_name: string;
-  email: string;
-  business_id: string | null;
-  business_name: string | null;
-  business_type: "barber" | "salon" | null;
-  business_status: "active" | "pending" | "suspended" | null;
   clients_count: number;
 };
 
@@ -56,6 +44,10 @@ function formatDate(iso: string) {
   return `${d.getDate()} ${months[d.getMonth()]} ${d.getFullYear()}`;
 }
 
+function roleLabel(r: Role) {
+  return r === "superadmin" ? "Superadmin" : r === "admin" ? "Admin" : "Dueño";
+}
+
 function StatCard({
   icon: Icon, label, value, tone, active, onClick,
 }: {
@@ -67,13 +59,8 @@ function StatCard({
     green: { bar: "#3FBF7F", chip: "#173a2a", iconColor: "#7BE3AB" },
     red: { bar: "#E1615E", chip: "#3a1c1c", iconColor: "#F19391" },
   }[tone];
-
   return (
-    <button
-      onClick={onClick}
-      className="text-left rounded-2xl overflow-hidden transition"
-      style={{ background: "#141210", border: `1px solid ${active ? tones.bar : "#29231a"}`, boxShadow: active ? `0 0 0 1px ${tones.bar}` : "none" }}
-    >
+    <button onClick={onClick} className="text-left rounded-2xl overflow-hidden transition" style={{ background: "#141210", border: `1px solid ${active ? tones.bar : "#29231a"}`, boxShadow: active ? `0 0 0 1px ${tones.bar}` : "none" }}>
       <div className="h-1" style={{ background: tones.bar, opacity: active ? 1 : 0.5 }} />
       <div className="p-4 flex items-center justify-between">
         <div className="flex items-center gap-3">
@@ -95,33 +82,28 @@ function StatusBadge({ status }: { status: BusinessRow["status"] }) {
     suspended: { text: "Suspendido", bg: "#3a1c1c", color: "#F19391" },
   }[status];
   return (
-    <span className="font-body text-[11px] font-medium px-2 py-0.5 rounded-full shrink-0" style={{ background: map.bg, color: map.color }}>
-      {map.text}
-    </span>
+    <span className="font-body text-[11px] font-medium px-2 py-0.5 rounded-full shrink-0" style={{ background: map.bg, color: map.color }}>{map.text}</span>
   );
 }
 
-function roleLabel(r: Role) {
-  return r === "superadmin" ? "Superadmin" : r === "admin" ? "Admin" : "Dueño";
-}
-
 function BusinessCard({
-  biz, busy, expanded, detail, currentUserId, onToggleStatus, onDelete, onToggleDetail, onChangeRole, roleBusy,
+  biz, busy, expanded, detail, currentUserId, isSuperadmin, onToggleStatus, onDelete, onToggleDetail, onChangeRole, roleBusy,
 }: {
   biz: BusinessRow;
   busy: boolean;
   expanded: boolean;
   detail: Detail | "loading" | undefined;
   currentUserId: string;
+  isSuperadmin: boolean;
   onToggleStatus: (biz: BusinessRow) => void;
   onDelete: (biz: BusinessRow) => void;
   onToggleDetail: (biz: BusinessRow) => void;
   onChangeRole: (userId: string, role: Role) => void;
   roleBusy: boolean;
 }) {
-  const isOwn = biz.owner_id === currentUserId;
   const isBarber = biz.type === "barber";
   const typeColor = isBarber ? { from: "#C0293A", to: "#2C4A87" } : { from: "#E5AEC0", to: "#9B6B90" };
+  const isOwn = biz.owner_id === currentUserId;
 
   return (
     <div className="rounded-2xl p-4" style={{ background: "#141210", border: "1px solid #29231a" }}>
@@ -147,38 +129,20 @@ function BusinessCard({
       </div>
 
       <div className="flex gap-2 mt-3">
-        <button
-          onClick={() => onToggleDetail(biz)}
-          className="font-body flex-1 text-xs font-medium py-2 rounded-lg transition inline-flex items-center justify-center gap-1"
-          style={{ border: "1px solid #3a3222", color: "#c4b89f" }}
-        >
+        <button onClick={() => onToggleDetail(biz)} className="font-body flex-1 text-xs font-medium py-2 rounded-lg transition inline-flex items-center justify-center gap-1" style={{ border: "1px solid #3a3222", color: "#c4b89f" }}>
           Ver detalle
           <ChevronDown className={`w-3.5 h-3.5 transition-transform ${expanded ? "rotate-180" : ""}`} />
         </button>
-        <button
-          onClick={() => onToggleStatus(biz)}
-          disabled={busy}
-          className="font-body flex-1 text-xs font-medium py-2 rounded-lg transition disabled:opacity-40"
-          style={{ border: "1px solid #4a3a1f", color: "#F0C567" }}
-        >
+        <button onClick={() => onToggleStatus(biz)} disabled={busy} className="font-body flex-1 text-xs font-medium py-2 rounded-lg transition disabled:opacity-40" style={{ border: "1px solid #4a3a1f", color: "#F0C567" }}>
           {biz.status === "active" ? "Suspender" : biz.status === "pending" ? "Aprobar" : "Activar"}
         </button>
-        <button
-          onClick={() => onDelete(biz)}
-          disabled={busy}
-          className="font-body flex-1 text-xs font-medium py-2 rounded-lg transition disabled:opacity-40"
-          style={{ border: "1px solid #4a1f1f", color: "#F19391" }}
-        >
+        <button onClick={() => onDelete(biz)} disabled={busy} className="font-body flex-1 text-xs font-medium py-2 rounded-lg transition disabled:opacity-40" style={{ border: "1px solid #4a1f1f", color: "#F19391" }}>
           Eliminar
         </button>
       </div>
 
       {isOwn && (
-        <Link
-          href="/dashboard"
-          className="font-body w-full flex items-center justify-center gap-2 mt-2 py-2.5 rounded-lg text-xs font-semibold"
-          style={{ background: "#332813", color: "#F0C567", border: "1px solid #4a3a1f" }}
-        >
+        <Link href="/dashboard" className="font-body w-full flex items-center justify-center gap-2 mt-2 py-2.5 rounded-lg text-xs font-semibold" style={{ background: "#332813", color: "#F0C567", border: "1px solid #4a3a1f" }}>
           <Home className="w-3.5 h-3.5" />
           Administrar mi negocio
         </Link>
@@ -211,27 +175,24 @@ function BusinessCard({
                 Este mes: {detail.month_attended} atendidos · RD${detail.month_revenue}. Total histórico: {detail.attended_total} atendidos · RD${detail.revenue_total}.
               </p>
 
-              {/* Rol del dueño (cambio directo, sin otra pantalla) */}
-              <div className="mt-4 rounded-xl p-3" style={{ background: "#0f0d0b", border: "1px solid #29231a" }}>
-                <div className="flex items-center justify-between gap-2 mb-2">
-                  <span className="font-body text-xs" style={{ color: "#c4b89f" }}>Rol del dueño</span>
-                  <span className="font-body text-[11px] font-medium px-2 py-0.5 rounded-full" style={{ background: biz.owner_role === "superadmin" ? "#332813" : biz.owner_role === "admin" ? "#173a2a" : "#2a2318", color: biz.owner_role === "superadmin" ? "#F0C567" : biz.owner_role === "admin" ? "#7BE3AB" : "#c4b89f" }}>
-                    {roleLabel(biz.owner_role)}
-                  </span>
+              {isSuperadmin && (
+                <div className="mt-4 rounded-xl p-3" style={{ background: "#0f0d0b", border: "1px solid #29231a" }}>
+                  <div className="flex items-center justify-between gap-2 mb-2">
+                    <span className="font-body text-xs" style={{ color: "#c4b89f" }}>Rol del dueño</span>
+                    <span className="font-body text-[11px] font-medium px-2 py-0.5 rounded-full" style={{ background: biz.owner_role === "superadmin" ? "#332813" : biz.owner_role === "admin" ? "#173a2a" : "#2a2318", color: biz.owner_role === "superadmin" ? "#F0C567" : biz.owner_role === "admin" ? "#7BE3AB" : "#c4b89f" }}>
+                      {roleLabel(biz.owner_role)}
+                    </span>
+                  </div>
+                  <div className="flex gap-2">
+                    {biz.owner_role !== "superadmin" && (
+                      <button onClick={() => onChangeRole(biz.owner_id, "superadmin")} disabled={roleBusy} className="font-body flex-1 text-xs font-medium py-2 rounded-lg disabled:opacity-40" style={{ border: "1px solid #4a3a1f", color: "#F0C567" }}>Hacer superadmin</button>
+                    )}
+                    {biz.owner_role !== "owner" && (
+                      <button onClick={() => onChangeRole(biz.owner_id, "owner")} disabled={roleBusy} className="font-body flex-1 text-xs font-medium py-2 rounded-lg disabled:opacity-40" style={{ border: "1px solid #3a3222", color: "#c4b89f" }}>Quitar acceso admin</button>
+                    )}
+                  </div>
                 </div>
-                <div className="flex gap-2">
-                  {biz.owner_role !== "superadmin" && (
-                    <button onClick={() => onChangeRole(biz.owner_id, "superadmin")} disabled={roleBusy} className="font-body flex-1 text-xs font-medium py-2 rounded-lg disabled:opacity-40" style={{ border: "1px solid #4a3a1f", color: "#F0C567" }}>
-                      Hacer superadmin
-                    </button>
-                  )}
-                  {biz.owner_role !== "owner" && (
-                    <button onClick={() => onChangeRole(biz.owner_id, "owner")} disabled={roleBusy} className="font-body flex-1 text-xs font-medium py-2 rounded-lg disabled:opacity-40" style={{ border: "1px solid #3a3222", color: "#c4b89f" }}>
-                      Quitar acceso admin
-                    </button>
-                  )}
-                </div>
-              </div>
+              )}
             </>
           )}
         </div>
@@ -242,20 +203,15 @@ function BusinessCard({
 
 export default function AdminPanelClient({ isSuperadmin, currentUserId }: { isSuperadmin: boolean; currentUserId: string }) {
   const supabase = createClient();
-  const [tab, setTab] = useState<"businesses" | "users">("businesses");
   const [typeFilter, setTypeFilter] = useState<"all" | "barber" | "salon">("all");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
+  const [search, setSearch] = useState("");
   const [businesses, setBusinesses] = useState<BusinessRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState<string | null>(null);
-
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [detailById, setDetailById] = useState<Record<string, Detail | "loading">>({});
-
-  const [users, setUsers] = useState<UserRow[]>([]);
-  const [usersLoading, setUsersLoading] = useState(false);
   const [roleBusyId, setRoleBusyId] = useState<string | null>(null);
-  const [roleError, setRoleError] = useState<string | null>(null);
 
   async function load() {
     setLoading(true);
@@ -264,16 +220,8 @@ export default function AdminPanelClient({ isSuperadmin, currentUserId }: { isSu
     setLoading(false);
   }
 
-  async function loadUsers() {
-    setUsersLoading(true);
-    const { data } = await supabase.rpc("admin_list_users");
-    setUsers((data ?? []) as UserRow[]);
-    setUsersLoading(false);
-  }
-
   useEffect(() => {
     load();
-    if (isSuperadmin) loadUsers();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -305,20 +253,22 @@ export default function AdminPanelClient({ isSuperadmin, currentUserId }: { isSu
   }
 
   async function changeRole(userId: string, role: Role) {
-    setRoleError(null);
     setRoleBusyId(userId);
     const { error } = await supabase.rpc("admin_set_role", { p_user_id: userId, p_role: role });
     if (error) {
-      setRoleError(error.message || "No se pudo cambiar el rol.");
+      alert(error.message || "No se pudo cambiar el rol.");
     } else {
-      setUsers((prev) => prev.map((x) => (x.id === userId ? { ...x, role } : x)));
       setBusinesses((prev) => prev.map((b) => (b.owner_id === userId ? { ...b, owner_role: role } : b)));
     }
     setRoleBusyId(null);
   }
 
+  const q = search.trim().toLowerCase();
   const filtered = businesses.filter(
-    (b) => (typeFilter === "all" || b.type === typeFilter) && (statusFilter === "all" || b.status === statusFilter),
+    (b) =>
+      (typeFilter === "all" || b.type === typeFilter) &&
+      (statusFilter === "all" || b.status === statusFilter) &&
+      (q === "" || b.name.toLowerCase().includes(q) || b.owner_name.toLowerCase().includes(q) || b.owner_email.toLowerCase().includes(q)),
   );
   const counts = {
     total: businesses.length,
@@ -340,18 +290,12 @@ export default function AdminPanelClient({ isSuperadmin, currentUserId }: { isSu
           <div className="w-8 h-8 rounded-lg flex items-center justify-center font-display text-sm font-semibold" style={{ background: "#C9962C", color: "#0A0806" }}>P</div>
           <span className="font-display text-base" style={{ color: "#F3EBDA" }}>Panel Maestro</span>
         </div>
-        <div className="flex items-center gap-2">
-          <Link href="/dashboard" className="font-body flex items-center gap-1.5 text-xs font-medium px-3 py-2 rounded-lg" style={{ border: "1px solid #29231a", color: "#c4b89f" }}>
-            <Home className="w-3.5 h-3.5" />
-            Mi negocio
-          </Link>
-          <form action={signOut}>
-            <button className="font-body flex items-center gap-1.5 text-xs font-medium px-3 py-2 rounded-lg" style={{ border: "1px solid #29231a", color: "#c4b89f" }}>
-              <LogOut className="w-3.5 h-3.5" />
-              Salir
-            </button>
-          </form>
-        </div>
+        <form action={signOut}>
+          <button className="font-body flex items-center gap-1.5 text-xs font-medium px-3 py-2 rounded-lg" style={{ border: "1px solid #29231a", color: "#c4b89f" }}>
+            <LogOut className="w-3.5 h-3.5" />
+            Salir
+          </button>
+        </form>
       </div>
 
       <div className="px-5 py-6 max-w-2xl mx-auto">
@@ -359,133 +303,84 @@ export default function AdminPanelClient({ isSuperadmin, currentUserId }: { isSu
         <h1 className="font-display text-2xl mt-1" style={{ color: "#F3EBDA" }}>Negocios registrados</h1>
         <p className="font-body text-sm mt-1" style={{ color: "#8a8072" }}>Gestiona las barberías y salones de la plataforma.</p>
 
-        {isSuperadmin && (
-          <div className="flex gap-2 mt-5">
-            <button onClick={() => setTab("businesses")} className="font-body flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-medium" style={{ background: tab === "businesses" ? "#C9962C" : "#141210", border: `1px solid ${tab === "businesses" ? "#C9962C" : "#29231a"}`, color: tab === "businesses" ? "#0A0806" : "#c4b89f" }}>
-              <Store className="w-4 h-4" /> Negocios
+        {/* Fila de accesos: Negocios (vista actual) + Administrar mi negocio */}
+        <div className="flex gap-2 mt-5">
+          <div className="font-body flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-medium" style={{ background: "#C9962C", border: "1px solid #C9962C", color: "#0A0806" }}>
+            Negocios
+          </div>
+          <Link href="/dashboard" className="font-body flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-medium" style={{ background: "#141210", border: "1px solid #29231a", color: "#c4b89f" }}>
+            <Home className="w-4 h-4" />
+            Administrar mi negocio
+          </Link>
+        </div>
+
+        <button onClick={load} disabled={loading} className="font-body w-full flex items-center justify-center gap-2 mt-4 py-3 rounded-xl text-sm font-medium disabled:opacity-50" style={{ background: "#141210", border: "1px solid #29231a", color: "#c4b89f" }}>
+          <RefreshCw className={`w-4 h-4 ${loading ? "animate-spin" : ""}`} />
+          Actualizar datos
+        </button>
+
+        {/* Tarjetas-filtro por estado */}
+        <div className="grid grid-cols-2 gap-3 mt-5">
+          <StatCard icon={Users} label="Negocios totales" value={counts.total} tone="blue" active={statusFilter === "all"} onClick={() => setStatusFilter("all")} />
+          <StatCard icon={PauseCircle} label="Pendientes" value={counts.pending} tone="amber" active={statusFilter === "pending"} onClick={() => setStatusFilter("pending")} />
+          <StatCard icon={CheckCircle2} label="Activos" value={counts.active} tone="green" active={statusFilter === "active"} onClick={() => setStatusFilter("active")} />
+          <StatCard icon={XCircle} label="Suspendidos" value={counts.suspended} tone="red" active={statusFilter === "suspended"} onClick={() => setStatusFilter("suspended")} />
+        </div>
+
+        {/* Buscador por nombre del negocio / dueño / correo */}
+        <div className="relative mt-5">
+          <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2" style={{ color: "#8a8072" }} />
+          <input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Buscar por nombre, dueño o correo…"
+            className="font-body w-full text-sm rounded-xl pl-9 pr-9 py-3 outline-none"
+            style={{ background: "#141210", border: "1px solid #29231a", color: "#F3EBDA" }}
+          />
+          {search && (
+            <button onClick={() => setSearch("")} className="absolute right-3 top-1/2 -translate-y-1/2" style={{ color: "#8a8072" }}>
+              <XCircle className="w-4 h-4" />
             </button>
-            <button onClick={() => setTab("users")} className="font-body flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-medium" style={{ background: tab === "users" ? "#C9962C" : "#141210", border: `1px solid ${tab === "users" ? "#C9962C" : "#29231a"}`, color: tab === "users" ? "#0A0806" : "#c4b89f" }}>
-              <UserCog className="w-4 h-4" /> Usuarios y roles
+          )}
+        </div>
+
+        <div className="flex gap-2 mt-4 mb-4">
+          {[
+            { key: "all" as const, label: "Todos" },
+            { key: "barber" as const, label: "Barbería" },
+            { key: "salon" as const, label: "Salón" },
+          ].map((t) => (
+            <button key={t.key} onClick={() => setTypeFilter(t.key)} className="font-body text-xs font-medium px-4 py-2 rounded-full transition" style={{ background: typeFilter === t.key ? "#C9962C" : "#141210", border: typeFilter === t.key ? "1px solid #C9962C" : "1px solid #29231a", color: typeFilter === t.key ? "#0A0806" : "#8a8072" }}>
+              {t.label}
             </button>
-          </div>
-        )}
+          ))}
+        </div>
 
-        {tab === "businesses" && (<>
-          <button onClick={load} disabled={loading} className="font-body w-full flex items-center justify-center gap-2 mt-5 py-3 rounded-xl text-sm font-medium disabled:opacity-50" style={{ background: "#141210", border: "1px solid #29231a", color: "#c4b89f" }}>
-            <RefreshCw className={`w-4 h-4 ${loading ? "animate-spin" : ""}`} />
-            Actualizar datos
-          </button>
-
-          {/* Tarjetas-filtro por estado */}
-          <div className="grid grid-cols-2 gap-3 mt-5">
-            <StatCard icon={Users} label="Negocios totales" value={counts.total} tone="blue" active={statusFilter === "all"} onClick={() => setStatusFilter("all")} />
-            <StatCard icon={PauseCircle} label="Pendientes" value={counts.pending} tone="amber" active={statusFilter === "pending"} onClick={() => setStatusFilter("pending")} />
-            <StatCard icon={CheckCircle2} label="Activos" value={counts.active} tone="green" active={statusFilter === "active"} onClick={() => setStatusFilter("active")} />
-            <StatCard icon={XCircle} label="Suspendidos" value={counts.suspended} tone="red" active={statusFilter === "suspended"} onClick={() => setStatusFilter("suspended")} />
-          </div>
-
-          <div className="flex gap-2 mt-6 mb-4">
-            {[
-              { key: "all" as const, label: "Todos" },
-              { key: "barber" as const, label: "Barbería" },
-              { key: "salon" as const, label: "Salón" },
-            ].map((t) => (
-              <button key={t.key} onClick={() => setTypeFilter(t.key)} className="font-body text-xs font-medium px-4 py-2 rounded-full transition" style={{ background: typeFilter === t.key ? "#C9962C" : "#141210", border: typeFilter === t.key ? "1px solid #C9962C" : "1px solid #29231a", color: typeFilter === t.key ? "#0A0806" : "#8a8072" }}>
-                {t.label}
-              </button>
-            ))}
-          </div>
-
-          <div className="space-y-3">
-            {filtered.map((biz) => (
-              <BusinessCard
-                key={biz.id}
-                biz={biz}
-                busy={busyId === biz.id}
-                expanded={expandedId === biz.id}
-                detail={detailById[biz.id]}
-                currentUserId={currentUserId}
-                onToggleStatus={toggleStatus}
-                onDelete={deleteBusiness}
-                onToggleDetail={toggleDetail}
-                onChangeRole={changeRole}
-                roleBusy={roleBusyId === biz.owner_id}
-              />
-            ))}
-            {!loading && filtered.length === 0 && (
-              <div className="rounded-2xl p-6 text-center" style={{ background: "#141210", border: "1px solid #29231a" }}>
-                <p className="font-body text-sm" style={{ color: "#8a8072" }}>No hay negocios con este filtro.</p>
-              </div>
-            )}
-          </div>
-        </>)}
-
-        {tab === "users" && isSuperadmin && (
-          <div className="mt-5">
-            <button onClick={loadUsers} disabled={usersLoading} className="font-body w-full flex items-center justify-center gap-2 py-3 rounded-xl text-sm font-medium disabled:opacity-50 mb-4" style={{ background: "#141210", border: "1px solid #29231a", color: "#c4b89f" }}>
-              <RefreshCw className={`w-4 h-4 ${usersLoading ? "animate-spin" : ""}`} />
-              Actualizar usuarios
-            </button>
-            <p className="font-body text-xs mb-4" style={{ color: "#8a8072" }}>Solo tú (superadmin) puedes cambiar roles. Un superadmin administra toda la plataforma.</p>
-
-            {roleError && (
-              <div className="rounded-xl p-3 mb-4 font-body text-xs" style={{ background: "#3a1c1c", border: "1px solid #4a1f1f", color: "#F19391" }}>{roleError}</div>
-            )}
-
-            <div className="space-y-3">
-              {users.map((u) => {
-                const isSelf = u.id === currentUserId;
-                const rc = u.role === "superadmin" ? { bg: "#332813", c: "#F0C567" } : u.role === "admin" ? { bg: "#173a2a", c: "#7BE3AB" } : { bg: "#2a2318", c: "#c4b89f" };
-                return (
-                  <div key={u.id} className="rounded-2xl p-4" style={{ background: "#141210", border: "1px solid #29231a" }}>
-                    <div className="flex items-start gap-3">
-                      <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ background: "#2a2318" }}>
-                        {u.role === "owner" ? <UserCog className="w-4 h-4" style={{ color: "#c4b89f" }} /> : <ShieldCheck className="w-4 h-4" style={{ color: "#F0C567" }} />}
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center justify-between gap-2">
-                          <h4 className="font-display text-base truncate" style={{ color: "#F3EBDA" }}>{u.full_name}{isSelf ? " (tú)" : ""}</h4>
-                          <span className="font-body text-xs font-medium px-2.5 py-1 rounded-full" style={{ background: rc.bg, color: rc.c }}>{roleLabel(u.role)}</span>
-                        </div>
-                        <p className="font-body text-xs mt-0.5 truncate" style={{ color: "#8a8072" }}>{u.email}</p>
-                      </div>
-                    </div>
-
-                    {u.business_id ? (
-                      <div className="mt-3 rounded-xl p-3 flex items-center justify-between gap-2" style={{ background: "#0f0d0b", border: "1px solid #29231a" }}>
-                        <div className="min-w-0">
-                          <p className="font-body text-sm truncate" style={{ color: "#F3EBDA" }}>{u.business_name}</p>
-                          <p className="font-body text-[11px] mt-0.5" style={{ color: "#8a8072" }}>
-                            {u.business_type === "barber" ? "Barbería" : "Salón"} · {u.clients_count} cliente{u.clients_count === 1 ? "" : "s"}
-                          </p>
-                        </div>
-                        <StatusBadge status={(u.business_status ?? "pending") as BusinessRow["status"]} />
-                      </div>
-                    ) : (
-                      <p className="font-body text-[11px] mt-2" style={{ color: "#6b6355" }}>Sin negocio creado.</p>
-                    )}
-
-                    {!isSelf && (
-                      <div className="flex gap-2 mt-4">
-                        {u.role !== "superadmin" && (
-                          <button onClick={() => changeRole(u.id, "superadmin")} disabled={roleBusyId === u.id} className="font-body flex-1 text-xs font-medium py-2 rounded-lg disabled:opacity-40" style={{ border: "1px solid #4a3a1f", color: "#F0C567" }}>Hacer superadmin</button>
-                        )}
-                        {u.role !== "owner" && (
-                          <button onClick={() => changeRole(u.id, "owner")} disabled={roleBusyId === u.id} className="font-body flex-1 text-xs font-medium py-2 rounded-lg disabled:opacity-40" style={{ border: "1px solid #3a3222", color: "#c4b89f" }}>Quitar acceso admin</button>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-              {!usersLoading && users.length === 0 && (
-                <div className="rounded-2xl p-6 text-center" style={{ background: "#141210", border: "1px solid #29231a" }}>
-                  <p className="font-body text-sm" style={{ color: "#8a8072" }}>No hay usuarios para mostrar.</p>
-                </div>
-              )}
+        <div className="space-y-3">
+          {filtered.map((biz) => (
+            <BusinessCard
+              key={biz.id}
+              biz={biz}
+              busy={busyId === biz.id}
+              expanded={expandedId === biz.id}
+              detail={detailById[biz.id]}
+              currentUserId={currentUserId}
+              isSuperadmin={isSuperadmin}
+              onToggleStatus={toggleStatus}
+              onDelete={deleteBusiness}
+              onToggleDetail={toggleDetail}
+              onChangeRole={changeRole}
+              roleBusy={roleBusyId === biz.owner_id}
+            />
+          ))}
+          {!loading && filtered.length === 0 && (
+            <div className="rounded-2xl p-6 text-center" style={{ background: "#141210", border: "1px solid #29231a" }}>
+              <p className="font-body text-sm" style={{ color: "#8a8072" }}>
+                {q ? `No hay resultados para “${search}”.` : "No hay negocios con este filtro."}
+              </p>
             </div>
-          </div>
-        )}
+          )}
+        </div>
       </div>
     </div>
   );
