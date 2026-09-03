@@ -35,7 +35,14 @@ export default function LoginPage() {
         );
         return;
       }
-      router.push("/dashboard");
+      // El superadmin/admin va directo al Panel Maestro; el dueño a su panel.
+      let dest = "/dashboard";
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) {
+        const { data: profile } = await supabase.from("profiles").select("role").eq("id", user.id).maybeSingle();
+        if (profile && (profile.role === "superadmin" || profile.role === "admin")) dest = "/admin";
+      }
+      router.push(dest);
       router.refresh();
     } catch {
       setError("No se pudo conectar con el servidor. Intenta de nuevo.");

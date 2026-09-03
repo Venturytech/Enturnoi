@@ -13,6 +13,16 @@ export default async function DashboardPage() {
 
   if (!user) redirect("/login");
 
+  // El superadmin/admin no tiene panel de dueño: va al Panel Maestro.
+  const { data: adminProfile } = await supabase
+    .from("profiles")
+    .select("role")
+    .eq("id", user.id)
+    .maybeSingle();
+  if (adminProfile && (adminProfile.role === "superadmin" || adminProfile.role === "admin")) {
+    redirect("/admin");
+  }
+
   const { data: business } = await supabase
     .from("businesses")
     .select("id, name, type, status, logo_url, invite_slug, phone, address, open_time, close_time, break_start, break_end")
