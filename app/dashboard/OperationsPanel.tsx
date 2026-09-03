@@ -7,7 +7,7 @@ import {
   CalendarDays, ChevronLeft, ChevronRight, Ban, CheckCheck,
   Bell, BarChart3, DollarSign, Share2, Check as CheckIcon, Tv,
   Settings, Plus, Trash2, ImagePlus, Loader2, Save, UserRound,
-  QrCode, Printer, Download,
+  QrCode, Printer, Download, Shield,
 } from "lucide-react";
 import { QRCodeCanvas } from "qrcode.react";
 import { createClient } from "@/lib/supabase/client";
@@ -1297,6 +1297,7 @@ export default function OperationsPanel({
   today,
   catalog,
   services,
+  isAdmin = false,
 }: {
   business: Business;
   staff: Staff[];
@@ -1305,6 +1306,7 @@ export default function OperationsPanel({
   today: string;
   catalog: CatalogItem[];
   services: BusinessService[];
+  isAdmin?: boolean;
 }) {
   const supabase = createClient();
   const theme = getTheme(business.type);
@@ -1370,12 +1372,20 @@ export default function OperationsPanel({
           </div>
           <span className="font-display text-xl truncate" style={{ color: theme.textPrimary }}>{business.name}</span>
         </div>
-        <form action={signOut}>
-          <button className="font-body flex items-center gap-1.5 text-xs font-medium px-3 py-2 rounded-lg shrink-0" style={{ border: `1px solid ${theme.cardBorder}`, color: theme.textMuted }}>
-            <LogOut className="w-3.5 h-3.5" />
-            Salir
-          </button>
-        </form>
+        <div className="flex items-center gap-2 shrink-0">
+          {isAdmin && (
+            <a href="/admin" className="font-body flex items-center gap-1.5 text-xs font-medium px-3 py-2 rounded-lg" style={{ border: `1px solid ${theme.cardBorder}`, color: theme.accentRing }}>
+              <Shield className="w-3.5 h-3.5" />
+              Panel Maestro
+            </a>
+          )}
+          <form action={signOut}>
+            <button className="font-body flex items-center gap-1.5 text-xs font-medium px-3 py-2 rounded-lg" style={{ border: `1px solid ${theme.cardBorder}`, color: theme.textMuted }}>
+              <LogOut className="w-3.5 h-3.5" />
+              Salir
+            </button>
+          </form>
+        </div>
       </div>
 
       <div className="px-5 py-6 max-w-sm mx-auto">

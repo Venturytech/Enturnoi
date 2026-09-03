@@ -13,15 +13,14 @@ export default async function DashboardPage() {
 
   if (!user) redirect("/login");
 
-  // El superadmin/admin no tiene panel de dueño: va al Panel Maestro.
+  // El superadmin/admin también puede crear y operar su propio negocio.
+  // No lo forzamos al Panel Maestro; le damos un enlace para ir y volver.
   const { data: adminProfile } = await supabase
     .from("profiles")
     .select("role")
     .eq("id", user.id)
     .maybeSingle();
-  if (adminProfile && (adminProfile.role === "superadmin" || adminProfile.role === "admin")) {
-    redirect("/admin");
-  }
+  const isAdmin = !!adminProfile && (adminProfile.role === "superadmin" || adminProfile.role === "admin");
 
   const { data: business } = await supabase
     .from("businesses")
@@ -52,6 +51,11 @@ export default async function DashboardPage() {
           >
             Crear mi negocio
           </Link>
+          {isAdmin && (
+            <Link href="/admin" className="font-body block mt-4 text-sm" style={{ color: theme.accentRing }}>
+              ← Volver al Panel Maestro
+            </Link>
+          )}
         </div>
       </main>
     );
@@ -81,6 +85,11 @@ export default async function DashboardPage() {
               Cerrar sesión
             </button>
           </form>
+          {isAdmin && (
+            <Link href="/admin" className="font-body block mt-4 text-sm" style={{ color: theme.accentRing }}>
+              ← Volver al Panel Maestro
+            </Link>
+          )}
         </div>
       </main>
     );
@@ -131,6 +140,7 @@ export default async function DashboardPage() {
       today={todayKey}
       catalog={(catalog ?? []) as any}
       services={(services ?? []) as any}
+      isAdmin={isAdmin}
     />
   );
 }
