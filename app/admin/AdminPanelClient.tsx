@@ -25,7 +25,17 @@ type BusinessRow = {
   clients_count: number;
 };
 
-type UserRow = { id: string; role: Role; full_name: string; email: string };
+type UserRow = {
+  id: string;
+  role: Role;
+  full_name: string;
+  email: string;
+  business_id: string | null;
+  business_name: string | null;
+  business_type: "barber" | "salon" | null;
+  business_status: "active" | "pending" | "suspended" | null;
+  clients_count: number;
+};
 
 type Detail = {
   clients_count: number;
@@ -96,18 +106,20 @@ function roleLabel(r: Role) {
 }
 
 function BusinessCard({
-  biz, busy, expanded, detail, onToggleStatus, onDelete, onToggleDetail, onChangeRole, roleBusy,
+  biz, busy, expanded, detail, currentUserId, onToggleStatus, onDelete, onToggleDetail, onChangeRole, roleBusy,
 }: {
   biz: BusinessRow;
   busy: boolean;
   expanded: boolean;
   detail: Detail | "loading" | undefined;
+  currentUserId: string;
   onToggleStatus: (biz: BusinessRow) => void;
   onDelete: (biz: BusinessRow) => void;
   onToggleDetail: (biz: BusinessRow) => void;
   onChangeRole: (userId: string, role: Role) => void;
   roleBusy: boolean;
 }) {
+  const isOwn = biz.owner_id === currentUserId;
   const isBarber = biz.type === "barber";
   const typeColor = isBarber ? { from: "#C0293A", to: "#2C4A87" } : { from: "#E5AEC0", to: "#9B6B90" };
 
@@ -160,6 +172,17 @@ function BusinessCard({
           Eliminar
         </button>
       </div>
+
+      {isOwn && (
+        <Link
+          href="/dashboard"
+          className="font-body w-full flex items-center justify-center gap-2 mt-2 py-2.5 rounded-lg text-xs font-semibold"
+          style={{ background: "#332813", color: "#F0C567", border: "1px solid #4a3a1f" }}
+        >
+          <Home className="w-3.5 h-3.5" />
+          Administrar mi negocio
+        </Link>
+      )}
 
       {expanded && (
         <div className="mt-4 pt-4" style={{ borderTop: "1px solid #29231a" }}>
@@ -381,6 +404,7 @@ export default function AdminPanelClient({ isSuperadmin, currentUserId }: { isSu
                 busy={busyId === biz.id}
                 expanded={expandedId === biz.id}
                 detail={detailById[biz.id]}
+                currentUserId={currentUserId}
                 onToggleStatus={toggleStatus}
                 onDelete={deleteBusiness}
                 onToggleDetail={toggleDetail}
@@ -426,6 +450,21 @@ export default function AdminPanelClient({ isSuperadmin, currentUserId }: { isSu
                         <p className="font-body text-xs mt-0.5 truncate" style={{ color: "#8a8072" }}>{u.email}</p>
                       </div>
                     </div>
+
+                    {u.business_id ? (
+                      <div className="mt-3 rounded-xl p-3 flex items-center justify-between gap-2" style={{ background: "#0f0d0b", border: "1px solid #29231a" }}>
+                        <div className="min-w-0">
+                          <p className="font-body text-sm truncate" style={{ color: "#F3EBDA" }}>{u.business_name}</p>
+                          <p className="font-body text-[11px] mt-0.5" style={{ color: "#8a8072" }}>
+                            {u.business_type === "barber" ? "Barbería" : "Salón"} · {u.clients_count} cliente{u.clients_count === 1 ? "" : "s"}
+                          </p>
+                        </div>
+                        <StatusBadge status={(u.business_status ?? "pending") as BusinessRow["status"]} />
+                      </div>
+                    ) : (
+                      <p className="font-body text-[11px] mt-2" style={{ color: "#6b6355" }}>Sin negocio creado.</p>
+                    )}
+
                     {!isSelf && (
                       <div className="flex gap-2 mt-4">
                         {u.role !== "superadmin" && (
