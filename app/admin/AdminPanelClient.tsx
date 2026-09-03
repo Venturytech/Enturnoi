@@ -6,6 +6,7 @@ import {
   Users, PauseCircle, CheckCircle2, XCircle, RefreshCw,
   Scissors, Flower2, LogOut, ChevronDown, Search,
   DollarSign, CalendarCheck, Home, Phone, Check as CheckIcon,
+  Store, Settings, BarChart3,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { signOut } from "@/app/auth/actions";
@@ -254,6 +255,9 @@ function BusinessCard({
 
 export default function AdminPanelClient({ isSuperadmin, currentUserId }: { isSuperadmin: boolean; currentUserId: string }) {
   const supabase = createClient();
+  const [view, setView] = useState<"businesses" | "settings" | "report">("businesses");
+  const [months, setMonths] = useState<{ month_start: string; total: number; payments: number }[]>([]);
+  const [monthSearch, setMonthSearch] = useState("");
   const [typeFilter, setTypeFilter] = useState<"all" | "barber" | "salon">("all");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [search, setSearch] = useState("");
@@ -283,6 +287,8 @@ export default function AdminPanelClient({ isSuperadmin, currentUserId }: { isSu
     const { data } = await supabase.rpc("admin_revenue_summary");
     const r = data && data[0];
     if (r) setRevenue({ month: Number(r.month_total), all: Number(r.all_total) });
+    const { data: mdata } = await supabase.rpc("admin_revenue_by_month");
+    setMonths((mdata ?? []).map((m: any) => ({ month_start: m.month_start, total: Number(m.total), payments: m.payments })));
   }
 
   async function loadSettings() {
@@ -413,33 +419,26 @@ export default function AdminPanelClient({ isSuperadmin, currentUserId }: { isSu
         <h1 className="font-display text-2xl mt-1" style={{ color: "#F3EBDA" }}>Negocios registrados</h1>
         <p className="font-body text-sm mt-1" style={{ color: "#8a8072" }}>Gestiona las barberías y salones de la plataforma.</p>
 
-        {/* Fila de accesos: Negocios (vista actual) + Administrar mi negocio */}
-        <div className="flex gap-2 mt-5">
-          <div className="font-body flex-1 flex items-center justify-center gap-2 py-2 rounded-xl text-sm font-medium" style={{ background: "#C9962C", border: "1px solid #C9962C", color: "#0A0806" }}>
-            Negocios
-          </div>
-          <Link href="/dashboard" className="font-body flex-1 flex items-center justify-center gap-2 py-2 rounded-xl text-sm font-medium" style={{ background: "#141210", border: "1px solid #29231a", color: "#c4b89f" }}>
-            <Home className="w-4 h-4" />
-            Administrar mi negocio
+        {/* 4 accesos */}
+        <div className="grid grid-cols-2 gap-2 mt-5">
+          <button onClick={() => setView("businesses")} className="font-body flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-medium" style={{ background: view === "businesses" ? "#C9962C" : "#141210", border: `1px solid ${view === "businesses" ? "#C9962C" : "#29231a"}`, color: view === "businesses" ? "#0A0806" : "#c4b89f" }}>
+            <Store className="w-4 h-4" /> Negocios
+          </button>
+          <Link href="/dashboard" className="font-body flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-medium" style={{ background: "#141210", border: "1px solid #29231a", color: "#c4b89f" }}>
+            <Home className="w-4 h-4" /> Mi negocio
           </Link>
+          <button onClick={() => setView("report")} className="font-body flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-medium" style={{ background: view === "report" ? "#C9962C" : "#141210", border: `1px solid ${view === "report" ? "#C9962C" : "#29231a"}`, color: view === "report" ? "#0A0806" : "#c4b89f" }}>
+            <BarChart3 className="w-4 h-4" /> Reporte
+          </button>
+          {isSuperadmin && (
+            <button onClick={() => setView("settings")} className="font-body flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-medium" style={{ background: view === "settings" ? "#C9962C" : "#141210", border: `1px solid ${view === "settings" ? "#C9962C" : "#29231a"}`, color: view === "settings" ? "#0A0806" : "#c4b89f" }}>
+              <Settings className="w-4 h-4" /> Ajustes
+            </button>
+          )}
         </div>
 
-        {/* Dinero cobrado por suscripciones */}
-        {revenue && (
-          <div className="rounded-2xl p-4 mt-4 flex items-center justify-between" style={{ background: "#141210", border: "1px solid #29231a" }}>
-            <div className="flex items-center gap-2">
-              <DollarSign className="w-4 h-4" style={{ color: "#7BE3AB" }} />
-              <span className="font-body text-xs" style={{ color: "#c4b89f" }}>Cobrado este mes</span>
-            </div>
-            <div className="text-right">
-              <p className="font-display text-lg leading-none" style={{ color: "#F3EBDA" }}>RD${revenue.month}</p>
-              <p className="font-body text-[10px] mt-1" style={{ color: "#8a8072" }}>Total: RD${revenue.all}</p>
-            </div>
-          </div>
-        )}
-
-        {/* Ajustes de la plataforma (superadmin): teléfono, precio y prueba */}
-        {isSuperadmin && (
+        {/* Ajustes de la plataforma (pestaña, solo superadmin) */}
+        {view === "settings" && isSuperadmin && (
           <div className="rounded-2xl p-4 mt-4" style={{ background: "#141210", border: "1px solid #29231a" }}>
             <div className="flex items-center gap-2 mb-3">
               <Phone className="w-3.5 h-3.5" style={{ color: "#C9962C" }} />
@@ -467,7 +466,8 @@ export default function AdminPanelClient({ isSuperadmin, currentUserId }: { isSu
           </div>
         )}
 
-        <button onClick={load} disabled={loading} className="font-body w-full flex items-center justify-center gap-2 mt-4 py-3 rounded-xl text-sm font-medium disabled:opacity-50" style={{ background: "#141210", border: "1px solid #29231a", color: "#c4b89f" }}>
+        {view === "businesses" && (<>
+        <button onClick={load} disabled={loading} className="font-body w-full flex items-center justify-center gap-2 mt-4 py-2.5 rounded-xl text-sm font-medium disabled:opacity-50" style={{ background: "#141210", border: "1px solid #29231a", color: "#c4b89f" }}>
           <RefreshCw className={`w-4 h-4 ${loading ? "animate-spin" : ""}`} />
           Actualizar datos
         </button>
@@ -536,6 +536,56 @@ export default function AdminPanelClient({ isSuperadmin, currentUserId }: { isSu
             </div>
           )}
         </div>
+        </>)}
+
+        {view === "report" && (
+          <div className="mt-4">
+            {/* Resumen grande */}
+            <div className="grid grid-cols-2 gap-3">
+              <div className="rounded-2xl p-4" style={{ background: "#141210", border: "1px solid #29231a" }}>
+                <DollarSign className="w-4 h-4 mb-2" style={{ color: "#7BE3AB" }} />
+                <p className="font-display text-2xl leading-none" style={{ color: "#F3EBDA" }}>RD${revenue?.month ?? 0}</p>
+                <p className="font-body text-[11px] mt-1" style={{ color: "#8a8072" }}>Cobrado este mes</p>
+              </div>
+              <div className="rounded-2xl p-4" style={{ background: "#141210", border: "1px solid #29231a" }}>
+                <BarChart3 className="w-4 h-4 mb-2" style={{ color: "#E3B04B" }} />
+                <p className="font-display text-2xl leading-none" style={{ color: "#F3EBDA" }}>RD${revenue?.all ?? 0}</p>
+                <p className="font-body text-[11px] mt-1" style={{ color: "#8a8072" }}>Total histórico</p>
+              </div>
+            </div>
+
+            <button onClick={loadRevenue} className="font-body w-full flex items-center justify-center gap-2 mt-4 py-2.5 rounded-xl text-sm font-medium" style={{ background: "#141210", border: "1px solid #29231a", color: "#c4b89f" }}>
+              <RefreshCw className="w-4 h-4" /> Actualizar reporte
+            </button>
+
+            {/* Buscar mes */}
+            <div className="relative mt-4">
+              <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2" style={{ color: "#8a8072" }} />
+              <input value={monthSearch} onChange={(e) => setMonthSearch(e.target.value)} placeholder="Buscar mes (ej. septiembre, 2026)…" className="font-body w-full text-sm rounded-xl pl-9 pr-3 py-2.5 outline-none" style={{ background: "#141210", border: "1px solid #29231a", color: "#F3EBDA" }} />
+            </div>
+
+            <h2 className="font-display text-lg mt-5 mb-2" style={{ color: "#F3EBDA" }}>Cobros por mes</h2>
+            <div className="space-y-2">
+              {months
+                .map((m) => ({ ...m, label: new Date(m.month_start + "T00:00:00").toLocaleDateString("es-DO", { month: "long", year: "numeric" }) }))
+                .filter((m) => monthSearch.trim() === "" || m.label.toLowerCase().includes(monthSearch.trim().toLowerCase()))
+                .map((m) => (
+                  <div key={m.month_start} className="rounded-xl p-3 flex items-center justify-between" style={{ background: "#141210", border: "1px solid #29231a" }}>
+                    <div>
+                      <p className="font-body text-sm capitalize" style={{ color: "#F3EBDA" }}>{m.label}</p>
+                      <p className="font-body text-[11px]" style={{ color: "#8a8072" }}>{m.payments} pago{m.payments === 1 ? "" : "s"}</p>
+                    </div>
+                    <span className="font-display text-lg" style={{ color: "#7BE3AB" }}>RD${m.total}</span>
+                  </div>
+                ))}
+              {months.length === 0 && (
+                <div className="rounded-2xl p-6 text-center" style={{ background: "#141210", border: "1px solid #29231a" }}>
+                  <p className="font-body text-sm" style={{ color: "#8a8072" }}>Aún no hay cobros registrados.</p>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
