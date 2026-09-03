@@ -44,8 +44,12 @@ negocio. William es el superadmin de la plataforma.
 - `app/onboarding` + `components/OnboardingForm.tsx` — crea negocio, equipo
   (con nombres reales), servicios con precio, sube logo, genera `invite_slug`.
 - `app/dashboard` + `app/dashboard/OperationsPanel.tsx` — panel del dueño:
-  citas de hoy con cotejo por gesto (mantener=atendido, arrastrar=no llegó),
-  calendario de disponibilidad por staff, reporte de ingresos, link y pantalla TV.
+  métricas compactas + accesos en cuadrícula (una sola vista), citas de hoy con
+  cotejo por gesto (mantener=atendido, arrastrar=no llegó), calendario de
+  disponibilidad por staff, reporte de ingresos, link y pantalla TV. Vista
+  "Editar negocio" (SettingsView): edita nombre/teléfono/dirección/logo del
+  negocio y gestiona el equipo (agregar, renombrar, especialidad, quitar y
+  subir foto de cada barbero). Escribe directo a Supabase (RLS del dueño).
 - `app/admin` + `AdminPanelClient.tsx` — Panel Maestro (solo superadmin/admin).
 - `app/r/[slug]` + `ClientFlow.tsx` — flujo del cliente: registro, cola en vivo
   por barbero, agendar cita futura (día→barbero→hora→servicio→confirmar).
@@ -54,6 +58,8 @@ negocio. William es el superadmin de la plataforma.
   `components/BrandTypeCards.tsx`, `middleware.ts`.
 
 ## Base de datos (tablas reales)
+`staff` tiene `photo_url` (foto/logo del barbero, subida al bucket `logos`
+bajo prefijo `staff/`). `businesses` tiene `phone` y `address`.
 `profiles`, `businesses`, `staff`, `services_catalog`, `business_services`,
 `clients` (con `password_hash` de pgcrypto), `client_business`, `appointments`,
 `staff_availability`, `availability_alerts`.
