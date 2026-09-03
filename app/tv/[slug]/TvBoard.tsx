@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Scissors, Flower2 } from "lucide-react";
+import { QRCodeCanvas } from "qrcode.react";
 import { createClient } from "@/lib/supabase/client";
 import { getTheme, type BusinessType } from "@/lib/theme";
 
@@ -48,6 +49,11 @@ export default function TvBoard({ slug, business, staff }: { slug: string; busin
   const [board, setBoard] = useState<Record<string, BoardAppt[]>>({});
   const [now, setNow] = useState(new Date());
   const [pulse, setPulse] = useState(false);
+  const [inviteUrl, setInviteUrl] = useState("");
+
+  useEffect(() => {
+    if (typeof window !== "undefined") setInviteUrl(`${window.location.origin}/r/${slug}`);
+  }, [slug]);
 
   async function loadBoard() {
     const { data } = await supabase.rpc("get_business_board_today", { p_slug: slug });
@@ -137,14 +143,25 @@ export default function TvBoard({ slug, business, staff }: { slug: string; busin
         </div>
 
         <div className="flex items-center gap-6">
-          <div className="flex items-center gap-2">
-            <span
-              className="w-2.5 h-2.5 rounded-full"
-              style={{ background: theme.green, animation: pulse ? "none" : "tvPulse 2.4s ease-in-out infinite" }}
-            />
-            <span className="font-body text-sm font-medium tracking-wide" style={{ color: theme.textMuted }}>EN VIVO</span>
+          <div className="flex flex-col items-center gap-1">
+            <div className="flex items-center gap-2">
+              <span
+                className="w-2.5 h-2.5 rounded-full"
+                style={{ background: theme.green, animation: pulse ? "none" : "tvPulse 2.4s ease-in-out infinite" }}
+              />
+              <span className="font-body text-sm font-medium tracking-wide" style={{ color: theme.textMuted }}>EN VIVO</span>
+            </div>
+            <span className="font-display text-2xl sm:text-4xl tabular-nums" style={{ color: theme.textPrimary }}>{timeStr}</span>
           </div>
-          <span className="font-display text-2xl sm:text-4xl tabular-nums" style={{ color: theme.textPrimary }}>{timeStr}</span>
+
+          {inviteUrl && (
+            <div className="flex flex-col items-center gap-1.5">
+              <div className="p-2 rounded-xl bg-white">
+                <QRCodeCanvas value={inviteUrl} size={72} level="M" />
+              </div>
+              <span className="font-body text-[11px] font-medium tracking-wide text-center" style={{ color: theme.textMuted }}>Escanéame<br />para tu turno</span>
+            </div>
+          )}
         </div>
       </div>
 

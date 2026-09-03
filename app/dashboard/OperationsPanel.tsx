@@ -7,7 +7,9 @@ import {
   CalendarDays, ChevronLeft, ChevronRight, Ban, CheckCheck,
   Bell, BarChart3, DollarSign, Share2, Check as CheckIcon, Tv,
   Settings, Plus, Trash2, ImagePlus, Loader2, Save, UserRound,
+  QrCode, Printer, Download,
 } from "lucide-react";
+import { QRCodeCanvas } from "qrcode.react";
 import { createClient } from "@/lib/supabase/client";
 import { getTheme, type BusinessType, type Theme } from "@/lib/theme";
 import { signOut } from "@/app/auth/actions";
@@ -1038,6 +1040,105 @@ function SettingsView({
 }
 
 // ---------------------------------------------------------------
+// Código QR del link de reservas: para verlo, imprimirlo (afiche)
+// o descargarlo como imagen y compartirlo.
+// ---------------------------------------------------------------
+function QrPosterView({
+  theme,
+  business,
+  inviteUrl,
+  onBack,
+}: {
+  theme: Theme;
+  business: Business;
+  inviteUrl: string;
+  onBack: () => void;
+}) {
+  const isBarber = business.type === "barber";
+  const canvasWrap = useRef<HTMLDivElement>(null);
+
+  const downloadQr = () => {
+    const canvas = canvasWrap.current?.querySelector("canvas");
+    if (!canvas) return;
+    const url = canvas.toDataURL("image/png");
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `qr-${business.invite_slug}.png`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  };
+
+  return (
+    <div>
+      {/* Al imprimir, solo se ve el afiche (.qr-print-area) */}
+      <style>{`
+        @media print {
+          body * { visibility: hidden !important; }
+          .qr-print-area, .qr-print-area * { visibility: visible !important; }
+          .qr-print-area { position: absolute; inset: 0; margin: 0 auto; background: #fff !important; }
+          .qr-no-print { display: none !important; }
+        }
+      `}</style>
+
+      <button
+        onClick={onBack}
+        className="qr-no-print font-body flex w-fit items-center gap-1.5 text-sm font-medium mb-5 px-3 py-1.5 rounded-full"
+        style={{ color: theme.accentRing, border: `1px solid ${theme.accentRing}` }}
+      >
+        <ChevronLeft className="w-4 h-4" />
+        Volver a operaciones
+      </button>
+
+      <span className="qr-no-print font-body text-[11px] font-semibold tracking-wider" style={{ color: theme.accentRing }}>CÓDIGO QR</span>
+      <h1 className="qr-no-print font-display text-2xl mb-1" style={{ color: theme.textPrimary }}>Tu código para reservar</h1>
+      <p className="qr-no-print font-body text-sm mb-5" style={{ color: theme.textMuted }}>Imprímelo y pégalo en tu local, o descárgalo para compartirlo. Al escanearlo, el cliente entra a tu link y crea su usuario.</p>
+
+      {/* Afiche imprimible */}
+      <div className="qr-print-area rounded-3xl p-6 text-center" style={{ background: "#ffffff", border: `1px solid ${theme.cardBorder}` }}>
+        <div className="flex items-center justify-center gap-2 mb-1">
+          {business.logo_url ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={business.logo_url} alt={business.name} className="w-9 h-9 rounded-lg object-cover" />
+          ) : isBarber ? (
+            <Scissors className="w-6 h-6" style={{ color: "#111" }} />
+          ) : (
+            <Flower2 className="w-6 h-6" style={{ color: "#111" }} />
+          )}
+          <span className="font-display text-xl" style={{ color: "#111" }}>{business.name}</span>
+        </div>
+        <p className="font-body text-sm mb-4" style={{ color: "#555" }}>Escanéame para reservar tu turno</p>
+
+        <div ref={canvasWrap} className="inline-flex p-3 rounded-2xl" style={{ background: "#fff", border: "1px solid #eee" }}>
+          <QRCodeCanvas value={inviteUrl || "https://enturnoi-venturytech.vercel.app"} size={220} level="M" includeMargin marginSize={2} />
+        </div>
+
+        <p className="font-body text-xs mt-4 break-all" style={{ color: "#888" }}>{inviteUrl}</p>
+      </div>
+
+      <div className="qr-no-print grid grid-cols-2 gap-3 mt-5">
+        <button
+          onClick={() => window.print()}
+          className="font-body flex items-center justify-center gap-2 py-3 rounded-xl font-semibold"
+          style={{ background: `linear-gradient(135deg, ${theme.accentFrom}, ${theme.accentTo})`, color: theme.buttonText }}
+        >
+          <Printer className="w-4 h-4" />
+          Imprimir
+        </button>
+        <button
+          onClick={downloadQr}
+          className="font-body flex items-center justify-center gap-2 py-3 rounded-xl font-semibold"
+          style={{ background: theme.chipBg, color: theme.accentRing, border: `1px solid ${theme.cardBorder}` }}
+        >
+          <Download className="w-4 h-4" />
+          Descargar
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------
 // Panel principal
 // ---------------------------------------------------------------
 export default function OperationsPanel({
@@ -1061,7 +1162,7 @@ export default function OperationsPanel({
   const theme = getTheme(business.type);
   const isBarber = business.type === "barber";
 
-  const [view, setView] = useState<"dashboard" | "calendar" | "report" | "appointments" | "settings">("dashboard");
+  const [view, setView] = useState<"dashboard" | "calendar" | "report" | "appointments" | "settings" | "qr">("dashboard");
   const [appointments, setAppointments] = useState<ViewAppointment[]>(initialAppointments.map(toViewAppointment));
   const [notified, setNotified] = useState<string | null>(null);
   const [linkCopied, setLinkCopied] = useState(false);
@@ -1152,6 +1253,13 @@ export default function OperationsPanel({
             today={today}
             appointments={appointments}
             onResolve={handleResolve}
+            onBack={() => setView("dashboard")}
+          />
+        ) : view === "qr" ? (
+          <QrPosterView
+            theme={theme}
+            business={business}
+            inviteUrl={inviteUrl}
             onBack={() => setView("dashboard")}
           />
         ) : view === "settings" ? (
@@ -1269,6 +1377,15 @@ export default function OperationsPanel({
             >
               {linkCopied ? <CheckIcon className="w-4 h-4" /> : <Share2 className="w-4 h-4" />}
               {linkCopied ? "Link copiado ✓" : "Compartir mi link"}
+            </button>
+
+            <button
+              onClick={() => setView("qr")}
+              className="font-body w-full flex items-center justify-center gap-2 mt-3 py-3 rounded-xl font-semibold"
+              style={{ background: theme.chipBg, color: theme.accentRing, border: `1px solid ${theme.cardBorder}` }}
+            >
+              <QrCode className="w-4 h-4" />
+              Código QR para imprimir
             </button>
 
             {staff.length > 0 && (
