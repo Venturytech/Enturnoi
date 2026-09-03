@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Scissors, Flower2, ArrowRight, ShieldCheck, ChevronLeft, ChevronRight,
-  Clock, Users, CalendarDays, Check, Lock, Smartphone, Apple,
+  Clock, Users, CalendarDays, Check, Lock, Smartphone, Apple, Store,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { getTheme, cardShadow, type BusinessType } from "@/lib/theme";
@@ -800,11 +800,16 @@ function BarberList({
         <span className="font-display text-lg flex-1 min-w-0 truncate" style={{ color: theme.textPrimary }}>{business.name}</span>
         <button
           onClick={onOpenMyBiz}
-          className="font-body flex items-center gap-1.5 text-xs font-medium px-3 py-2 rounded-full shrink-0"
-          style={{ background: theme.chipBg, color: theme.accentRing }}
+          className="font-body flex items-center gap-1.5 text-xs font-bold px-3.5 py-2 rounded-full shrink-0 shadow-md"
+          style={{ background: `linear-gradient(135deg, ${theme.accentFrom}, ${theme.accentTo})`, color: theme.buttonText }}
         >
-          <Users className="w-3.5 h-3.5" />
-          Mis barberías{myCount > 1 ? ` (${myCount})` : ""}
+          <Store className="w-3.5 h-3.5" strokeWidth={2.5} />
+          Mis {isBarber ? "barberías" : "salones"}
+          {myCount > 1 && (
+            <span className="ml-0.5 min-w-[18px] h-[18px] px-1 rounded-full flex items-center justify-center text-[10px] font-bold" style={{ background: theme.buttonText, color: theme.accentRing }}>
+              {myCount}
+            </span>
+          )}
         </button>
       </div>
 
