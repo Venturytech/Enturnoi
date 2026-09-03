@@ -1,16 +1,20 @@
 // ---------------------------------------------------------------
 // Enlaces a las tiendas (App Store / Google Play).
 //
-// Todavía no existe la app nativa. Cuando esté publicada:
-//   1) pon `enabled: true`
-//   2) pega los enlaces reales de iOS y Android
-// Con eso, la pantalla del cliente mostrará el botón de descarga
-// automáticamente según el dispositivo. Nada más que tocar.
+// MODO ACTUAL: el botón se MUESTRA (para ver cómo queda) pero todavía
+// NO lleva a ninguna parte, porque la app aún no existe.
+//
+// Cuando la app esté publicada, solo pega los 2 links reales abajo
+// (ios y android). Con eso el botón empezará a abrir la tienda
+// correcta según el dispositivo. Nada más que tocar.
+//
+// Si algún día quieres ocultar el botón por completo, pon
+// `enabled: false`.
 // ---------------------------------------------------------------
 export const APP_STORE = {
-  enabled: false,
-  ios: "https://apps.apple.com/app/id0000000000", // reemplazar con el link real
-  android: "https://play.google.com/store/apps/details?id=com.enturnoapp", // reemplazar con el link real
+  enabled: true,
+  ios: "", // <- pega aquí el link real de App Store cuando exista
+  android: "", // <- pega aquí el link real de Google Play cuando exista
 };
 
 export type MobilePlatform = "ios" | "android" | "other";
@@ -23,12 +27,17 @@ export function detectPlatform(): MobilePlatform {
   return "other";
 }
 
-// Devuelve el link de descarga adecuado al dispositivo, o null si aún
-// no está habilitado / no aplica.
-export function storeLinkForDevice(): { platform: MobilePlatform; url: string } | null {
+// Devuelve la info para pintar el botón, o null si está oculto
+// (enabled = false). `url` puede venir vacío: en ese caso el botón se
+// ve pero no navega a ningún lado (modo prueba).
+export function appDownloadCta(): { platform: MobilePlatform; url: string } | null {
   if (!APP_STORE.enabled) return null;
   const platform = detectPlatform();
-  if (platform === "ios" && APP_STORE.ios) return { platform, url: APP_STORE.ios };
-  if (platform === "android" && APP_STORE.android) return { platform, url: APP_STORE.android };
-  return null;
+  const url =
+    platform === "ios"
+      ? APP_STORE.ios
+      : platform === "android"
+        ? APP_STORE.android
+        : APP_STORE.ios || APP_STORE.android || "";
+  return { platform, url };
 }

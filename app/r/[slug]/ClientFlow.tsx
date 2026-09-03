@@ -7,7 +7,7 @@ import {
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { getTheme, cardShadow, type BusinessType } from "@/lib/theme";
-import { storeLinkForDevice } from "@/lib/appStore";
+import { appDownloadCta } from "@/lib/appStore";
 
 type Business = { id: string; name: string; type: BusinessType; logo_url: string | null; address: string | null };
 type Staff = { id: string; name: string; specialty: string | null };
@@ -202,31 +202,47 @@ export default function ClientFlow({ slug, business }: { slug: string; business:
 }
 
 // ---------------------------------------------------------------
-// Descarga de la app (iOS / Android). Queda listo pero OCULTO hasta
-// que la app exista: se activa poniendo APP_STORE.enabled = true en
-// lib/appStore.ts. Muestra el botón correcto según el dispositivo.
+// Descarga de la app (iOS / Android). El botón se MUESTRA para ver
+// cómo queda, pero por ahora NO lleva a ningún lado (la app aún no
+// existe). Cuando se agreguen los links reales en lib/appStore.ts,
+// el botón empezará a abrir la tienda correcta según el dispositivo.
+// Para ocultarlo por completo: APP_STORE.enabled = false.
 // ---------------------------------------------------------------
 function AppDownloadCta({ theme }: { theme: ReturnType<typeof getTheme> }) {
-  const [link, setLink] = useState<{ platform: "ios" | "android" | "other"; url: string } | null>(null);
+  const [cta, setCta] = useState<{ platform: "ios" | "android" | "other"; url: string } | null>(null);
 
   useEffect(() => {
-    setLink(storeLinkForDevice());
+    setCta(appDownloadCta());
   }, []);
 
-  if (!link) return null;
+  if (!cta) return null;
 
-  const isIos = link.platform === "ios";
+  const isIos = cta.platform === "ios";
+  const label = isIos
+    ? "Descarga la app en App Store"
+    : cta.platform === "android"
+      ? "Descarga la app en Google Play"
+      : "Descarga nuestra app";
+  const icon = isIos ? <Apple className="w-4 h-4" /> : <Smartphone className="w-4 h-4" />;
+  const className =
+    "font-body w-full flex items-center justify-center gap-2 mt-4 py-3.5 rounded-xl font-semibold";
+  const style = { background: theme.chipBg, color: theme.accentRing, border: `1px solid ${theme.cardBorder}` };
+
+  // Con link real -> abre la tienda. Sin link (modo prueba) -> se ve
+  // igual pero no navega a ningún lado.
+  if (cta.url) {
+    return (
+      <a href={cta.url} target="_blank" rel="noopener noreferrer" className={className} style={style}>
+        {icon}
+        {label}
+      </a>
+    );
+  }
   return (
-    <a
-      href={link.url}
-      target="_blank"
-      rel="noopener noreferrer"
-      className="font-body w-full flex items-center justify-center gap-2 mt-4 py-3.5 rounded-xl font-semibold"
-      style={{ background: theme.chipBg, color: theme.accentRing, border: `1px solid ${theme.cardBorder}` }}
-    >
-      {isIos ? <Apple className="w-4 h-4" /> : <Smartphone className="w-4 h-4" />}
-      {isIos ? "Descarga la app en App Store" : "Descarga la app en Google Play"}
-    </a>
+    <button type="button" onClick={(e) => e.preventDefault()} className={className} style={style}>
+      {icon}
+      {label}
+    </button>
   );
 }
 
