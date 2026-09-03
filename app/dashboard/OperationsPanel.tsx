@@ -1162,7 +1162,7 @@ export default function OperationsPanel({
   const theme = getTheme(business.type);
   const isBarber = business.type === "barber";
 
-  const [view, setView] = useState<"dashboard" | "calendar" | "report" | "appointments" | "settings" | "qr">("dashboard");
+  const [view, setView] = useState<"dashboard" | "calendar" | "report" | "appointments" | "settings" | "qr" | "notify">("dashboard");
   const [appointments, setAppointments] = useState<ViewAppointment[]>(initialAppointments.map(toViewAppointment));
   const [notified, setNotified] = useState<string | null>(null);
   const [linkCopied, setLinkCopied] = useState(false);
@@ -1255,6 +1255,49 @@ export default function OperationsPanel({
             onResolve={handleResolve}
             onBack={() => setView("dashboard")}
           />
+        ) : view === "notify" ? (
+          <div>
+            <button
+              onClick={() => setView("dashboard")}
+              className="font-body flex w-fit items-center gap-1.5 text-sm font-medium mb-5 px-3 py-1.5 rounded-full"
+              style={{ color: theme.accentRing, border: `1px solid ${theme.accentRing}` }}
+            >
+              <ChevronLeft className="w-4 h-4" />
+              Volver a operaciones
+            </button>
+
+            <span className="font-body text-[11px] font-semibold tracking-wider" style={{ color: theme.accentRing }}>NOTIFICAR</span>
+            <h1 className="font-display text-2xl mb-1" style={{ color: theme.textPrimary }}>Avisar disponibilidad</h1>
+            <p className="font-body text-sm mb-5" style={{ color: theme.textMuted }}>Toca al barbero que está libre ahora para avisar a los clientes.</p>
+
+            {staff.length === 0 ? (
+              <div className="rounded-2xl p-6 text-center" style={{ background: theme.cardBg, border: `1px solid ${theme.cardBorder}` }}>
+                <p className="font-body text-sm" style={{ color: theme.textMuted }}>Aún no tienes equipo. Agrégalo desde “Editar negocio”.</p>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {staff.map((s) => (
+                  <button
+                    key={s.id}
+                    onClick={() => notifyBarber(s.name)}
+                    className="w-full flex items-center gap-3 px-4 py-3.5 rounded-2xl text-left"
+                    style={{ background: notified === s.name ? "rgba(63,191,127,0.14)" : theme.cardBg, border: `1px solid ${notified === s.name ? "#3FBF7F" : theme.cardBorder}` }}
+                  >
+                    <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ background: theme.chipBg }}>
+                      <Bell className="w-4 h-4" style={{ color: theme.accentRing }} />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="font-body text-sm font-semibold" style={{ color: theme.textPrimary }}>{s.name}</p>
+                      <p className="font-body text-xs" style={{ color: theme.textMuted }}>Está libre ahora</p>
+                    </div>
+                    <span className="font-body text-xs font-semibold shrink-0" style={{ color: notified === s.name ? "#3FBF7F" : theme.accentRing }}>
+                      {notified === s.name ? "Enviada ✓" : "Notificar"}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
         ) : view === "qr" ? (
           <QrPosterView
             theme={theme}
@@ -1352,16 +1395,16 @@ export default function OperationsPanel({
               </button>
 
               <button
-                onClick={copyTvLink}
+                onClick={() => setView("notify")}
                 className="flex flex-col items-start gap-2 p-3 rounded-2xl text-left"
-                style={{ background: theme.cardBg, border: `1px solid ${tvCopied ? "#3FBF7F" : theme.cardBorder}` }}
+                style={{ background: theme.cardBg, border: `1px solid ${theme.cardBorder}` }}
               >
                 <div className="w-9 h-9 rounded-lg flex items-center justify-center" style={{ background: theme.chipBg }}>
-                  <Tv className="w-4 h-4" style={{ color: theme.accentRing }} />
+                  <Bell className="w-4 h-4" style={{ color: theme.accentRing }} />
                 </div>
                 <div>
-                  <p className="font-body text-sm font-semibold" style={{ color: theme.textPrimary }}>Pantalla TV</p>
-                  <p className="font-body text-[11px]" style={{ color: tvCopied ? "#3FBF7F" : theme.textMuted }}>{tvCopied ? "Link copiado ✓" : "Copiar link"}</p>
+                  <p className="font-body text-sm font-semibold" style={{ color: theme.textPrimary }}>Notificar</p>
+                  <p className="font-body text-[11px]" style={{ color: theme.textMuted }}>Avisar disponibilidad</p>
                 </div>
               </button>
             </div>
@@ -1380,6 +1423,15 @@ export default function OperationsPanel({
             </button>
 
             <button
+              onClick={copyTvLink}
+              className="font-body w-full flex items-center justify-center gap-2 mt-3 py-3 rounded-xl font-semibold"
+              style={{ background: theme.chipBg, color: tvCopied ? "#3FBF7F" : theme.accentRing, border: `1px solid ${tvCopied ? "#3FBF7F" : theme.cardBorder}` }}
+            >
+              {tvCopied ? <CheckIcon className="w-4 h-4" /> : <Tv className="w-4 h-4" />}
+              {tvCopied ? "Link de TV copiado ✓" : "Pantalla para TV"}
+            </button>
+
+            <button
               onClick={() => setView("qr")}
               className="font-body w-full flex items-center justify-center gap-2 mt-3 py-3 rounded-xl font-semibold"
               style={{ background: theme.chipBg, color: theme.accentRing, border: `1px solid ${theme.cardBorder}` }}
@@ -1387,31 +1439,6 @@ export default function OperationsPanel({
               <QrCode className="w-4 h-4" />
               Código QR para imprimir
             </button>
-
-            {staff.length > 0 && (
-              <details className="rounded-2xl mt-3 group" style={{ background: theme.cardBg, border: `1px solid ${theme.cardBorder}` }}>
-                <summary className="flex items-center gap-2 px-4 py-3 cursor-pointer list-none">
-                  <Bell className="w-3.5 h-3.5" style={{ color: theme.accentRing }} />
-                  <span className="font-body text-xs font-medium flex-1" style={{ color: theme.textMuted }}>Notificar disponibilidad</span>
-                  <ChevronRight className="w-4 h-4 transition-transform group-open:rotate-90" style={{ color: theme.textMuted }} />
-                </summary>
-                <div className="space-y-2 px-4 pb-4">
-                  {staff.map((s) => (
-                    <button
-                      key={s.id}
-                      onClick={() => notifyBarber(s.name)}
-                      className="w-full flex items-center justify-between px-3 py-2.5 rounded-xl"
-                      style={{ background: notified === s.name ? "rgba(63,191,127,0.14)" : theme.chipBg, border: `1px solid ${notified === s.name ? "#3FBF7F" : "transparent"}` }}
-                    >
-                      <span className="font-body text-sm" style={{ color: theme.textPrimary }}>{s.name} está libre ahora</span>
-                      <span className="font-body text-xs font-semibold" style={{ color: notified === s.name ? "#3FBF7F" : theme.accentRing }}>
-                        {notified === s.name ? "Enviada ✓" : "Notificar"}
-                      </span>
-                    </button>
-                  ))}
-                </div>
-              </details>
-            )}
           </>
         )}
       </div>
