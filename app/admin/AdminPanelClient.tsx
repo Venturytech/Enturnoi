@@ -35,13 +35,18 @@ function daysLeft(endsAt: string | null): number | null {
   return Math.round((end.getTime() - today.getTime()) / 86400000);
 }
 
+function remainingText(d: number): string {
+  if (d >= 30) { const m = Math.floor(d / 30); return `${m} mes${m === 1 ? "" : "es"} pago${m === 1 ? "" : "s"}`; }
+  return `${d} día${d === 1 ? "" : "s"}`;
+}
+
 function subLabel(endsAt: string | null): { text: string; bg: string; color: string } {
   const d = daysLeft(endsAt);
   if (d === null) return { text: "Sin suscripción", bg: "#2a2318", color: "#8a8072" };
-  if (d < 0) return { text: `Vencida hace ${-d} día${-d === 1 ? "" : "s"}`, bg: "#3a1c1c", color: "#F19391" };
+  if (d < 0) return { text: `Vencida hace ${-d}d`, bg: "#3a1c1c", color: "#F19391" };
   if (d === 0) return { text: "Vence hoy", bg: "#3a1c1c", color: "#F19391" };
-  if (d <= 5) return { text: `Vence en ${d} día${d === 1 ? "" : "s"}`, bg: "#3a2f18", color: "#F0C567" };
-  return { text: `Vence en ${d} días`, bg: "#173a2a", color: "#7BE3AB" };
+  if (d <= 5) return { text: remainingText(d), bg: "#3a2f18", color: "#F0C567" };
+  return { text: remainingText(d), bg: "#173a2a", color: "#7BE3AB" };
 }
 
 type Detail = {
@@ -154,20 +159,20 @@ function BusinessCard({
       </div>
 
       <div className="flex gap-2 mt-3">
-        <button onClick={() => onToggleDetail(biz)} className="font-body flex-1 text-xs font-medium py-2 rounded-lg transition inline-flex items-center justify-center gap-1" style={{ border: "1px solid #3a3222", color: "#c4b89f" }}>
+        <button onClick={() => onToggleDetail(biz)} className="font-body flex-1 text-[11px] font-medium py-1.5 rounded-lg transition inline-flex items-center justify-center gap-1" style={{ border: "1px solid #3a3222", color: "#c4b89f" }}>
           Ver detalle
           <ChevronDown className={`w-3.5 h-3.5 transition-transform ${expanded ? "rotate-180" : ""}`} />
         </button>
-        <button onClick={() => onToggleStatus(biz)} disabled={busy} className="font-body flex-1 text-xs font-medium py-2 rounded-lg transition disabled:opacity-40" style={{ border: "1px solid #4a3a1f", color: "#F0C567" }}>
+        <button onClick={() => onToggleStatus(biz)} disabled={busy} className="font-body flex-1 text-[11px] font-medium py-1.5 rounded-lg transition disabled:opacity-40" style={{ border: "1px solid #4a3a1f", color: "#F0C567" }}>
           {biz.status === "active" ? "Suspender" : biz.status === "pending" ? "Aprobar" : "Activar"}
         </button>
-        <button onClick={() => onDelete(biz)} disabled={busy} className="font-body flex-1 text-xs font-medium py-2 rounded-lg transition disabled:opacity-40" style={{ border: "1px solid #4a1f1f", color: "#F19391" }}>
+        <button onClick={() => onDelete(biz)} disabled={busy} className="font-body flex-1 text-[11px] font-medium py-1.5 rounded-lg transition disabled:opacity-40" style={{ border: "1px solid #4a1f1f", color: "#F19391" }}>
           Eliminar
         </button>
       </div>
 
       {isOwn && (
-        <Link href="/dashboard" className="font-body w-full flex items-center justify-center gap-2 mt-2 py-2.5 rounded-lg text-xs font-semibold" style={{ background: "#332813", color: "#F0C567", border: "1px solid #4a3a1f" }}>
+        <Link href="/dashboard" className="font-body w-full flex items-center justify-center gap-2 mt-2 py-2 rounded-lg text-[11px] font-semibold" style={{ background: "#332813", color: "#F0C567", border: "1px solid #4a3a1f" }}>
           <Home className="w-3.5 h-3.5" />
           Administrar mi negocio
         </Link>
@@ -214,7 +219,7 @@ function BusinessCard({
                 <p className="font-body text-[11px] mb-2" style={{ color: "#8a8072" }}>Cuando pague, súmale meses (reactiva y registra el pago):</p>
                 <div className="flex gap-2">
                   {[1, 2, 3].map((m) => (
-                    <button key={m} onClick={() => onAddMonths(biz, m)} disabled={subBusy} className="font-body flex-1 text-xs font-semibold py-2 rounded-lg disabled:opacity-40" style={{ background: "#332813", color: "#F0C567", border: "1px solid #4a3a1f" }}>
+                    <button key={m} onClick={() => onAddMonths(biz, m)} disabled={subBusy} className="font-body flex-1 text-[11px] font-semibold py-1.5 rounded-lg disabled:opacity-40" style={{ background: "#332813", color: "#F0C567", border: "1px solid #4a3a1f" }}>
                       +{m} {m === 1 ? "mes" : "meses"}
                     </button>
                   ))}
@@ -231,10 +236,10 @@ function BusinessCard({
                   </div>
                   <div className="flex gap-2">
                     {biz.owner_role !== "superadmin" && (
-                      <button onClick={() => onChangeRole(biz.owner_id, "superadmin")} disabled={roleBusy} className="font-body flex-1 text-xs font-medium py-2 rounded-lg disabled:opacity-40" style={{ border: "1px solid #4a3a1f", color: "#F0C567" }}>Hacer superadmin</button>
+                      <button onClick={() => onChangeRole(biz.owner_id, "superadmin")} disabled={roleBusy} className="font-body flex-1 text-[11px] font-medium py-1.5 rounded-lg disabled:opacity-40" style={{ border: "1px solid #4a3a1f", color: "#F0C567" }}>Hacer superadmin</button>
                     )}
                     {biz.owner_role !== "owner" && (
-                      <button onClick={() => onChangeRole(biz.owner_id, "owner")} disabled={roleBusy} className="font-body flex-1 text-xs font-medium py-2 rounded-lg disabled:opacity-40" style={{ border: "1px solid #3a3222", color: "#c4b89f" }}>Quitar acceso admin</button>
+                      <button onClick={() => onChangeRole(biz.owner_id, "owner")} disabled={roleBusy} className="font-body flex-1 text-[11px] font-medium py-1.5 rounded-lg disabled:opacity-40" style={{ border: "1px solid #3a3222", color: "#c4b89f" }}>Quitar acceso admin</button>
                     )}
                   </div>
                 </div>
@@ -410,10 +415,10 @@ export default function AdminPanelClient({ isSuperadmin, currentUserId }: { isSu
 
         {/* Fila de accesos: Negocios (vista actual) + Administrar mi negocio */}
         <div className="flex gap-2 mt-5">
-          <div className="font-body flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-medium" style={{ background: "#C9962C", border: "1px solid #C9962C", color: "#0A0806" }}>
+          <div className="font-body flex-1 flex items-center justify-center gap-2 py-2 rounded-xl text-sm font-medium" style={{ background: "#C9962C", border: "1px solid #C9962C", color: "#0A0806" }}>
             Negocios
           </div>
-          <Link href="/dashboard" className="font-body flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-medium" style={{ background: "#141210", border: "1px solid #29231a", color: "#c4b89f" }}>
+          <Link href="/dashboard" className="font-body flex-1 flex items-center justify-center gap-2 py-2 rounded-xl text-sm font-medium" style={{ background: "#141210", border: "1px solid #29231a", color: "#c4b89f" }}>
             <Home className="w-4 h-4" />
             Administrar mi negocio
           </Link>

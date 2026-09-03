@@ -1317,14 +1317,20 @@ export default function OperationsPanel({
   const subDaysLeft = subscriptionEndsAt
     ? Math.round((new Date(subscriptionEndsAt + "T00:00:00").getTime() - new Date(new Date().toDateString()).getTime()) / 86400000)
     : null;
+  const subRemaining =
+    subDaysLeft === null
+      ? ""
+      : subDaysLeft >= 30
+        ? `${Math.floor(subDaysLeft / 30)} mes${Math.floor(subDaysLeft / 30) === 1 ? "" : "es"}`
+        : `${subDaysLeft} día${subDaysLeft === 1 ? "" : "s"}`;
   const subChip =
     subDaysLeft === null
       ? null
       : subDaysLeft < 0
-        ? { text: "Suscripción vencida", color: "#F19391", bg: "rgba(220,80,80,0.14)" }
+        ? { text: "Suscripción vencida — renueva", color: "#F19391", bg: "rgba(220,80,80,0.14)" }
         : subDaysLeft <= 5
-          ? { text: `Suscripción: ${subDaysLeft} día${subDaysLeft === 1 ? "" : "s"}`, color: "#F0C567", bg: "rgba(224,169,59,0.14)" }
-          : { text: `Suscripción: ${subDaysLeft} días`, color: "#3FBF7F", bg: "rgba(63,191,127,0.12)" };
+          ? { text: `Te quedan ${subRemaining} de suscripción`, color: "#F0C567", bg: "rgba(224,169,59,0.14)" }
+          : { text: `Suscripción al día · ${subRemaining}`, color: "#3FBF7F", bg: "rgba(63,191,127,0.12)" };
 
   const [view, setView] = useState<"dashboard" | "calendar" | "report" | "appointments" | "settings" | "qr" | "notify" | "tv">("dashboard");
   const [appointments, setAppointments] = useState<ViewAppointment[]>(initialAppointments.map(toViewAppointment));
