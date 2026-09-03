@@ -25,6 +25,7 @@ type Staff = { id: string; name: string; specialty: string | null };
 type ServiceOption = { business_service_id: string; service_name: string; price: number; duration_minutes: number };
 type QueueInfo = { staff_id: string; present_count: number; scheduled_count: number; total_minutes: number };
 type Identity = { clientId: string; name: string; phone: string };
+type ClientBusiness = { id: string; name: string; type: BusinessType; logo_url: string | null; invite_slug: string };
 type Summary = { kind: "future" | "walkin"; date?: string; time?: string; staff: string; service: string; price: number };
 type MyQueueEntry = {
   appt_id: string;
@@ -44,23 +45,45 @@ function apptTimeToDisplay(t: string) {
   return `${h12}:${String(m).padStart(2, "0")} ${ampm}`;
 }
 
-const STORAGE_PREFIX = "enturnoi:client:";
+// Una sola cuenta de cliente para TODAS las barberías (número + PIN).
+// El cliente se liga a cada barbería por su link/QR; aquí solo guardamos
+// quién es en el dispositivo.
+const STORAGE_KEY = "enturnoi:client";
+const LEGACY_PREFIX = "enturnoi:client:";
+const UNLOCK_KEY = "enturnoi:unlocked";
 
 function getIdentity(slug: string): Identity | null {
   if (typeof window === "undefined") return null;
-  const raw = localStorage.getItem(STORAGE_PREFIX + slug);
-  if (!raw) return null;
-  try {
-    return JSON.parse(raw);
-  } catch {
-    return null;
+  const raw = localStorage.getItem(STORAGE_KEY);
+  if (raw) {
+    try { return JSON.parse(raw); } catch { /* ignore */ }
   }
+  // Migración desde el formato viejo por-barbería (enturnoi:client:<slug>)
+  const legacy = localStorage.getItem(LEGACY_PREFIX + slug);
+  if (legacy) {
+    try {
+      const idn = JSON.parse(legacy) as Identity;
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(idn));
+      return idn;
+    } catch { /* ignore */ }
+  }
+  return null;
 }
-function saveIdentity(slug: string, identity: Identity) {
-  localStorage.setItem(STORAGE_PREFIX + slug, JSON.stringify(identity));
+function saveIdentity(_slug: string, identity: Identity) {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(identity));
 }
-function forgetIdentity(slug: string) {
-  localStorage.removeItem(STORAGE_PREFIX + slug);
+function forgetIdentity(_slug: string) {
+  localStorage.removeItem(STORAGE_KEY);
+  try { sessionStorage.removeItem(UNLOCK_KEY); } catch { /* ignore */ }
+}
+// "Desbloqueado" en esta sesión del navegador: tras poner el PIN una vez,
+// el cliente puede moverse entre sus barberías sin re-teclearlo.
+function markUnlocked(clientId: string) {
+  try { sessionStorage.setItem(UNLOCK_KEY, clientId); } catch { /* ignore */ }
+}
+function isUnlocked(clientId: string): boolean {
+  if (typeof window === "undefined") return false;
+  try { return sessionStorage.getItem(UNLOCK_KEY) === clientId; } catch { return false; }
 }
 
 function formatTime(date: Date) {
@@ -92,16 +115,21 @@ export default function ClientFlow({ slug, business }: { slug: string; business:
   const [identity, setIdentityState] = useState<Identity | null>(null);
   const [stored, setStored] = useState<Identity | null>(null);
   const [checkedStorage, setCheckedStorage] = useState(false);
-  const [view, setView] = useState<"list" | "detail" | "schedule" | "walkin" | "confirmed">("list");
+  const [view, setView] = useState<"list" | "detail" | "schedule" | "walkin" | "confirmed" | "mybiz">("list");
   const [staff, setStaff] = useState<Staff[]>([]);
   const [services, setServices] = useState<ServiceOption[]>([]);
   const [queue, setQueue] = useState<Record<string, QueueInfo>>({});
   const [myQueue, setMyQueue] = useState<MyQueueEntry[]>([]);
+  const [myBusinesses, setMyBusinesses] = useState<ClientBusiness[]>([]);
   const [selectedStaff, setSelectedStaff] = useState<Staff | null>(null);
   const [lastConfirmed, setLastConfirmed] = useState<Summary | null>(null);
 
   useEffect(() => {
-    setStored(getIdentity(slug));
+    const idn = getIdentity(slug);
+    setStored(idn);
+    // Si ya puso el PIN en esta sesión del navegador, entra directo
+    // (para moverse entre sus barberías sin re-teclearlo).
+    if (idn && isUnlocked(idn.clientId)) setIdentityState(idn);
     setCheckedStorage(true);
   }, [slug]);
 
@@ -120,6 +148,21 @@ export default function ClientFlow({ slug, business }: { slug: string; business:
     setQueue(map);
     setMyQueue((mq.data ?? []) as MyQueueEntry[]);
   }
+
+  // Al entrar (por link/QR) queda ligado a ESTA barbería, y cargamos la
+  // lista de "Mis barberías". Ligarse solo ocurre por link/QR: no hay
+  // forma de buscar una barbería dentro de la app.
+  useEffect(() => {
+    if (!identity) return;
+    let cancelled = false;
+    (async () => {
+      await supabase.rpc("client_join_business", { p_client_id: identity.clientId, p_slug: slug });
+      const { data } = await supabase.rpc("get_client_businesses", { p_client_id: identity.clientId });
+      if (!cancelled) setMyBusinesses((data ?? []) as ClientBusiness[]);
+    })();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [identity, slug]);
 
   // Carga inicial + se mantiene al día: realtime sobre las citas del
   // negocio y un refresco de respaldo cada 15s (por si el realtime cae).
@@ -155,6 +198,7 @@ export default function ClientFlow({ slug, business }: { slug: string; business:
         stored={stored}
         onAuthed={(idn) => {
           saveIdentity(slug, idn);
+          markUnlocked(idn.clientId);
           setStored(idn);
           setIdentityState(idn);
         }}
@@ -221,6 +265,21 @@ export default function ClientFlow({ slug, business }: { slug: string; business:
         {view === "confirmed" && lastConfirmed && (
           <Confirmed theme={theme} summary={lastConfirmed} onBack={() => setView("list")} />
         )}
+        {view === "mybiz" && (
+          <MyBusinesses
+            theme={theme}
+            businesses={myBusinesses}
+            currentSlug={slug}
+            clientName={identity.name}
+            onBack={() => setView("list")}
+            onForget={() => {
+              forgetIdentity(slug);
+              setStored(null);
+              setIdentityState(null);
+              setView("list");
+            }}
+          />
+        )}
         {view === "list" && (
           <>
             <BarberList
@@ -229,6 +288,8 @@ export default function ClientFlow({ slug, business }: { slug: string; business:
               business={business}
               staff={staff}
               queue={queue}
+              myCount={myBusinesses.length}
+              onOpenMyBiz={() => setView("mybiz")}
               onSelect={(s) => {
                 setSelectedStaff(s);
                 setView("detail");
@@ -242,6 +303,86 @@ export default function ClientFlow({ slug, business }: { slug: string; business:
           </>
         )}
       </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------
+// "Mis barberías": el cliente ve todas las barberías a las que
+// pertenece y salta entre ellas. Para unirse a una nueva, abre su
+// link o código QR (no se puede buscar dentro de la app).
+// ---------------------------------------------------------------
+function MyBusinesses({
+  theme, businesses, currentSlug, clientName, onBack, onForget,
+}: {
+  theme: ReturnType<typeof getTheme>;
+  businesses: ClientBusiness[];
+  currentSlug: string;
+  clientName: string;
+  onBack: () => void;
+  onForget: () => void;
+}) {
+  return (
+    <div>
+      <button
+        onClick={onBack}
+        className="font-body inline-flex items-center gap-1.5 text-sm font-medium mb-4 px-3 py-1.5 rounded-full"
+        style={{ color: theme.accentRing, border: `1px solid ${theme.accentRing}` }}
+      >
+        <ChevronLeft className="w-4 h-4" />
+        Volver
+      </button>
+
+      <h1 className="font-display text-2xl mb-1" style={{ color: theme.textPrimary }}>Mis barberías</h1>
+      <p className="font-body text-sm mb-5" style={{ color: theme.textMuted }}>
+        Hola {clientName.split(" ")[0]}. Aquí están las barberías a las que perteneces. Para unirte a una nueva, abre su link o su código QR.
+      </p>
+
+      <div className="space-y-2">
+        {businesses.map((b) => {
+          const here = b.invite_slug === currentSlug;
+          const barber = b.type === "barber";
+          return (
+            <a
+              key={b.id}
+              href={`/r/${b.invite_slug}`}
+              className="w-full flex items-center gap-3 p-3 rounded-2xl"
+              style={{ background: theme.cardBg, border: `1px solid ${here ? theme.accentRing : theme.cardBorder}` }}
+            >
+              <div className="w-11 h-11 rounded-xl flex items-center justify-center shrink-0 overflow-hidden" style={{ background: `linear-gradient(135deg, ${theme.accentFrom}, ${theme.accentTo})` }}>
+                {b.logo_url ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={b.logo_url} alt={b.name} className="w-full h-full object-cover" />
+                ) : barber ? (
+                  <Scissors className="w-5 h-5" style={{ color: theme.buttonText }} strokeWidth={2.5} />
+                ) : (
+                  <Flower2 className="w-5 h-5" style={{ color: theme.buttonText }} strokeWidth={2.5} />
+                )}
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="font-body text-sm font-semibold truncate" style={{ color: theme.textPrimary }}>{b.name}</p>
+                <p className="font-body text-xs" style={{ color: here ? theme.accentRing : theme.textMuted }}>
+                  {here ? "Estás aquí" : (barber ? "Barbería" : "Salón")}
+                </p>
+              </div>
+              {!here && <ChevronRight className="w-4 h-4 shrink-0" style={{ color: theme.textMuted }} />}
+            </a>
+          );
+        })}
+        {businesses.length === 0 && (
+          <div className="rounded-2xl p-6 text-center" style={{ background: theme.cardBg, border: `1px solid ${theme.cardBorder}` }}>
+            <p className="font-body text-sm" style={{ color: theme.textMuted }}>Aún no perteneces a ninguna barbería.</p>
+          </div>
+        )}
+      </div>
+
+      <button
+        onClick={onForget}
+        className="font-body w-full text-sm font-medium py-3 rounded-xl mt-6"
+        style={{ color: theme.textMuted, border: `1px solid ${theme.cardBorder}` }}
+      >
+        Cerrar sesión en este dispositivo
+      </button>
     </div>
   );
 }
@@ -631,20 +772,22 @@ function ClientGate({
 // Lista de barberos con su cola en tiempo real
 // ---------------------------------------------------------------
 function BarberList({
-  theme, isBarber, business, staff, queue, onSelect, onScheduleFuture,
+  theme, isBarber, business, staff, queue, myCount, onOpenMyBiz, onSelect, onScheduleFuture,
 }: {
   theme: ReturnType<typeof getTheme>;
   isBarber: boolean;
   business: Business;
   staff: Staff[];
   queue: Record<string, QueueInfo>;
+  myCount: number;
+  onOpenMyBiz: () => void;
   onSelect: (s: Staff) => void;
   onScheduleFuture: () => void;
 }) {
   return (
     <>
       <div className="flex items-center gap-3 mb-6">
-        <div className="w-10 h-10 rounded-xl flex items-center justify-center overflow-hidden" style={{ background: `linear-gradient(135deg, ${theme.accentFrom}, ${theme.accentTo})` }}>
+        <div className="w-10 h-10 rounded-xl flex items-center justify-center overflow-hidden shrink-0" style={{ background: `linear-gradient(135deg, ${theme.accentFrom}, ${theme.accentTo})` }}>
           {business.logo_url ? (
             // eslint-disable-next-line @next/next/no-img-element
             <img src={business.logo_url} alt={business.name} className="w-full h-full object-cover" />
@@ -654,7 +797,15 @@ function BarberList({
             <Flower2 className="w-4 h-4" style={{ color: theme.buttonText }} strokeWidth={2.5} />
           )}
         </div>
-        <span className="font-display text-lg" style={{ color: theme.textPrimary }}>{business.name}</span>
+        <span className="font-display text-lg flex-1 min-w-0 truncate" style={{ color: theme.textPrimary }}>{business.name}</span>
+        <button
+          onClick={onOpenMyBiz}
+          className="font-body flex items-center gap-1.5 text-xs font-medium px-3 py-2 rounded-full shrink-0"
+          style={{ background: theme.chipBg, color: theme.accentRing }}
+        >
+          <Users className="w-3.5 h-3.5" />
+          Mis barberías{myCount > 1 ? ` (${myCount})` : ""}
+        </button>
       </div>
 
       <h1 className="font-display text-2xl mb-1" style={{ color: theme.textPrimary }}>Elige tu barbero</h1>
