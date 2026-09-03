@@ -14,7 +14,7 @@ export default async function DashboardPage() {
 
   const { data: business } = await supabase
     .from("businesses")
-    .select("id, name, type, status, logo_url, invite_slug")
+    .select("id, name, type, status, logo_url, invite_slug, phone, address")
     .eq("owner_id", user.id)
     .maybeSingle();
 
@@ -51,7 +51,7 @@ export default async function DashboardPage() {
   const [{ data: staff }, { data: appointments }, { count: clientsCount }] = await Promise.all([
     supabase
       .from("staff")
-      .select("id, name, specialty")
+      .select("id, name, specialty, photo_url")
       .eq("business_id", business.id)
       .order("name"),
     supabase

@@ -1,10 +1,12 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import {
   Scissors, Flower2, Users, CalendarClock, LogOut,
   CalendarDays, ChevronLeft, ChevronRight, Ban, CheckCheck,
   Bell, BarChart3, DollarSign, Share2, Check as CheckIcon, Tv,
+  Settings, Plus, Trash2, ImagePlus, Loader2, Save, UserRound,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { getTheme, type BusinessType, type Theme } from "@/lib/theme";
@@ -13,8 +15,8 @@ import { signOut } from "@/app/auth/actions";
 // ---------------------------------------------------------------
 // Tipos
 // ---------------------------------------------------------------
-type Business = { id: string; name: string; type: BusinessType; status: string; logo_url: string | null; invite_slug: string };
-type Staff = { id: string; name: string; specialty: string | null };
+type Business = { id: string; name: string; type: BusinessType; status: string; logo_url: string | null; invite_slug: string; phone: string | null; address: string | null };
+type Staff = { id: string; name: string; specialty: string | null; photo_url: string | null };
 
 type RawAppointment = {
   id: string;
@@ -578,6 +580,308 @@ function AppointmentsView({
 }
 
 // ---------------------------------------------------------------
+// Avatar de miembro del equipo: foto si existe, si no las iniciales.
+// ---------------------------------------------------------------
+function initials(name: string) {
+  return name.trim().split(/\s+/).map((n) => n[0]).join("").slice(0, 2).toUpperCase();
+}
+
+function StaffAvatar({ name, photoUrl, theme, size = 44 }: { name: string; photoUrl: string | null; theme: Theme; size?: number }) {
+  return (
+    <div
+      className="rounded-xl flex items-center justify-center shrink-0 overflow-hidden font-display"
+      style={{ width: size, height: size, background: theme.chipBg, color: theme.accentRing, fontSize: size * 0.34 }}
+    >
+      {photoUrl ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img src={photoUrl} alt={name} className="w-full h-full object-cover" />
+      ) : (
+        name ? initials(name) : <UserRound style={{ width: size * 0.5, height: size * 0.5 }} />
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------
+// Editar negocio: datos del negocio (nombre, teléfono, dirección,
+// logo) y gestión del equipo (agregar, renombrar, foto, quitar).
+// Todo real contra Supabase (RLS: el dueño manda en su negocio).
+// ---------------------------------------------------------------
+function SettingsView({
+  theme,
+  business,
+  staff,
+  onBack,
+}: {
+  theme: Theme;
+  business: Business;
+  staff: Staff[];
+  onBack: () => void;
+}) {
+  const supabase = createClient();
+  const router = useRouter();
+
+  const [name, setName] = useState(business.name);
+  const [phone, setPhone] = useState(business.phone ?? "");
+  const [address, setAddress] = useState(business.address ?? "");
+  const [logoUrl, setLogoUrl] = useState<string | null>(business.logo_url);
+  const [savingBiz, setSavingBiz] = useState(false);
+  const [bizSaved, setBizSaved] = useState(false);
+  const [uploadingLogo, setUploadingLogo] = useState(false);
+
+  const [team, setTeam] = useState<Staff[]>(staff);
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const [newName, setNewName] = useState("");
+  const [newSpecialty, setNewSpecialty] = useState("");
+  const [addingStaff, setAddingStaff] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function uploadImage(file: File, prefix: string): Promise<string | null> {
+    const ext = (file.name.split(".").pop() || "jpg").toLowerCase();
+    const path = `${prefix}/${business.id}-${Date.now()}.${ext}`;
+    const { error: upErr } = await supabase.storage
+      .from("logos")
+      .upload(path, file, { cacheControl: "3600", upsert: true, contentType: file.type });
+    if (upErr) {
+      setError("No se pudo subir la imagen: " + upErr.message);
+      return null;
+    }
+    const { data } = supabase.storage.from("logos").getPublicUrl(path);
+    return data.publicUrl;
+  }
+
+  async function onLogoPick(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    setError(null);
+    setUploadingLogo(true);
+    const url = await uploadImage(file, "logos");
+    if (url) setLogoUrl(url);
+    setUploadingLogo(false);
+  }
+
+  async function saveBusiness() {
+    setError(null);
+    setSavingBiz(true);
+    const { error: updErr } = await supabase
+      .from("businesses")
+      .update({ name: name.trim(), phone: phone.trim() || null, address: address.trim() || null, logo_url: logoUrl })
+      .eq("id", business.id);
+    setSavingBiz(false);
+    if (updErr) {
+      setError("No se pudo guardar el negocio: " + updErr.message);
+      return;
+    }
+    setBizSaved(true);
+    setTimeout(() => setBizSaved(false), 2500);
+    router.refresh();
+  }
+
+  async function addStaff() {
+    const n = newName.trim();
+    if (!n) return;
+    setError(null);
+    setAddingStaff(true);
+    const { data, error: insErr } = await supabase
+      .from("staff")
+      .insert({ business_id: business.id, name: n, specialty: newSpecialty.trim() || null })
+      .select("id, name, specialty, photo_url")
+      .single();
+    setAddingStaff(false);
+    if (insErr || !data) {
+      setError("No se pudo agregar: " + (insErr?.message ?? "error"));
+      return;
+    }
+    setTeam((prev) => [...prev, data as Staff]);
+    setNewName("");
+    setNewSpecialty("");
+    router.refresh();
+  }
+
+  async function renameStaff(id: string, field: "name" | "specialty", value: string) {
+    setTeam((prev) => prev.map((s) => (s.id === id ? { ...s, [field]: value } : s)));
+  }
+
+  async function persistStaff(id: string, field: "name" | "specialty", value: string) {
+    await supabase.from("staff").update({ [field]: value.trim() || null }).eq("id", id);
+    router.refresh();
+  }
+
+  async function onStaffPhoto(id: string, e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    setError(null);
+    setBusyId(id);
+    const url = await uploadImage(file, "staff");
+    if (url) {
+      const { error: updErr } = await supabase.from("staff").update({ photo_url: url }).eq("id", id);
+      if (!updErr) {
+        setTeam((prev) => prev.map((s) => (s.id === id ? { ...s, photo_url: url } : s)));
+        router.refresh();
+      } else {
+        setError("No se pudo guardar la foto: " + updErr.message);
+      }
+    }
+    setBusyId(null);
+  }
+
+  async function removeStaff(id: string, sName: string) {
+    if (!window.confirm(`¿Quitar a ${sName || "este miembro"} del equipo? Sus citas históricas se conservan.`)) return;
+    setError(null);
+    setBusyId(id);
+    const { error: delErr } = await supabase.from("staff").delete().eq("id", id);
+    setBusyId(null);
+    if (delErr) {
+      setError("No se pudo quitar: " + delErr.message);
+      return;
+    }
+    setTeam((prev) => prev.filter((s) => s.id !== id));
+    router.refresh();
+  }
+
+  const inputStyle = {
+    background: theme.chipBg,
+    border: `1px solid ${theme.cardBorder}`,
+    color: theme.textPrimary,
+  } as const;
+
+  return (
+    <div>
+      <button
+        onClick={onBack}
+        className="font-body inline-flex items-center gap-1.5 text-sm font-medium mb-5 px-3 py-1.5 rounded-full"
+        style={{ color: theme.accentRing, border: `1px solid ${theme.accentRing}` }}
+      >
+        <ChevronLeft className="w-4 h-4" />
+        Volver a operaciones
+      </button>
+
+      <span className="font-body text-[11px] font-semibold tracking-wider" style={{ color: theme.accentRing }}>AJUSTES</span>
+      <h1 className="font-display text-2xl mb-1" style={{ color: theme.textPrimary }}>Editar negocio</h1>
+      <p className="font-body text-sm mb-5" style={{ color: theme.textMuted }}>Cambia los datos, la imagen y tu equipo.</p>
+
+      {error && (
+        <div className="rounded-xl p-3 mb-4 font-body text-xs" style={{ background: "rgba(220,80,80,0.14)", border: "1px solid #C25B5B", color: "#F19391" }}>
+          {error}
+        </div>
+      )}
+
+      {/* Datos del negocio */}
+      <div className="rounded-2xl p-4 mb-6" style={{ background: theme.cardBg, border: `1px solid ${theme.cardBorder}` }}>
+        <div className="flex items-center gap-3 mb-4">
+          <label className="relative cursor-pointer shrink-0">
+            <div className="w-16 h-16 rounded-2xl flex items-center justify-center overflow-hidden" style={{ background: `linear-gradient(135deg, ${theme.accentFrom}, ${theme.accentTo})` }}>
+              {logoUrl ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={logoUrl} alt="logo" className="w-full h-full object-cover" />
+              ) : (
+                <ImagePlus className="w-6 h-6" style={{ color: theme.buttonText }} />
+              )}
+            </div>
+            <span className="absolute -bottom-1 -right-1 w-6 h-6 rounded-full flex items-center justify-center" style={{ background: theme.accentRing }}>
+              {uploadingLogo ? <Loader2 className="w-3.5 h-3.5 animate-spin" style={{ color: theme.buttonText }} /> : <ImagePlus className="w-3.5 h-3.5" style={{ color: theme.buttonText }} />}
+            </span>
+            <input type="file" accept="image/*" className="hidden" onChange={onLogoPick} />
+          </label>
+          <div className="min-w-0">
+            <p className="font-body text-sm font-semibold" style={{ color: theme.textPrimary }}>Logo del negocio</p>
+            <p className="font-body text-xs" style={{ color: theme.textMuted }}>Toca la imagen para cambiarla</p>
+          </div>
+        </div>
+
+        <label className="font-body text-xs font-medium block mb-1" style={{ color: theme.textMuted }}>Nombre</label>
+        <input value={name} onChange={(e) => setName(e.target.value)} className="font-body w-full text-sm rounded-xl px-3 py-2.5 mb-3 outline-none" style={inputStyle} />
+
+        <label className="font-body text-xs font-medium block mb-1" style={{ color: theme.textMuted }}>Teléfono</label>
+        <input value={phone} onChange={(e) => setPhone(e.target.value)} inputMode="tel" placeholder="Ej. 809-000-0000" className="font-body w-full text-sm rounded-xl px-3 py-2.5 mb-3 outline-none" style={inputStyle} />
+
+        <label className="font-body text-xs font-medium block mb-1" style={{ color: theme.textMuted }}>Dirección</label>
+        <input value={address} onChange={(e) => setAddress(e.target.value)} placeholder="Ej. Calle 1, Santiago" className="font-body w-full text-sm rounded-xl px-3 py-2.5 mb-4 outline-none" style={inputStyle} />
+
+        <button
+          onClick={saveBusiness}
+          disabled={savingBiz || !name.trim()}
+          className="font-body w-full flex items-center justify-center gap-2 py-3 rounded-xl font-semibold disabled:opacity-50"
+          style={{ background: bizSaved ? "rgba(63,191,127,0.16)" : `linear-gradient(135deg, ${theme.accentFrom}, ${theme.accentTo})`, color: bizSaved ? "#3FBF7F" : theme.buttonText, border: bizSaved ? "1px solid #3FBF7F" : "none" }}
+        >
+          {savingBiz ? <Loader2 className="w-4 h-4 animate-spin" /> : bizSaved ? <CheckIcon className="w-4 h-4" /> : <Save className="w-4 h-4" />}
+          {savingBiz ? "Guardando…" : bizSaved ? "Guardado ✓" : "Guardar cambios"}
+        </button>
+      </div>
+
+      {/* Equipo */}
+      <h2 className="font-display text-lg mb-1" style={{ color: theme.textPrimary }}>Tu equipo</h2>
+      <p className="font-body text-xs mb-3" style={{ color: theme.textMuted }}>Toca la foto para subir su cara o logo. Los cambios se guardan solos.</p>
+
+      <div className="space-y-2 mb-4">
+        {team.map((s) => (
+          <div key={s.id} className="rounded-2xl p-3 flex items-center gap-3" style={{ background: theme.cardBg, border: `1px solid ${theme.cardBorder}` }}>
+            <label className="relative cursor-pointer shrink-0">
+              <StaffAvatar name={s.name} photoUrl={s.photo_url} theme={theme} size={48} />
+              <span className="absolute -bottom-1 -right-1 w-5 h-5 rounded-full flex items-center justify-center" style={{ background: theme.accentRing }}>
+                {busyId === s.id ? <Loader2 className="w-3 h-3 animate-spin" style={{ color: theme.buttonText }} /> : <ImagePlus className="w-3 h-3" style={{ color: theme.buttonText }} />}
+              </span>
+              <input type="file" accept="image/*" className="hidden" onChange={(e) => onStaffPhoto(s.id, e)} />
+            </label>
+
+            <div className="flex-1 min-w-0">
+              <input
+                value={s.name}
+                onChange={(e) => renameStaff(s.id, "name", e.target.value)}
+                onBlur={(e) => persistStaff(s.id, "name", e.target.value)}
+                className="font-body w-full text-sm font-semibold rounded-lg px-2 py-1.5 mb-1 outline-none"
+                style={inputStyle}
+              />
+              <input
+                value={s.specialty ?? ""}
+                onChange={(e) => renameStaff(s.id, "specialty", e.target.value)}
+                onBlur={(e) => persistStaff(s.id, "specialty", e.target.value)}
+                placeholder="Especialidad (opcional)"
+                className="font-body w-full text-xs rounded-lg px-2 py-1.5 outline-none"
+                style={inputStyle}
+              />
+            </div>
+
+            <button
+              onClick={() => removeStaff(s.id, s.name)}
+              disabled={busyId === s.id}
+              className="w-9 h-9 rounded-lg flex items-center justify-center shrink-0 disabled:opacity-40"
+              style={{ background: theme.chipBg, color: "#F19391" }}
+              aria-label="Quitar"
+            >
+              <Trash2 className="w-4 h-4" />
+            </button>
+          </div>
+        ))}
+        {team.length === 0 && (
+          <div className="rounded-2xl p-4 text-center" style={{ background: theme.cardBg, border: `1px solid ${theme.cardBorder}` }}>
+            <p className="font-body text-sm" style={{ color: theme.textMuted }}>Aún no tienes equipo. Agrega el primero abajo.</p>
+          </div>
+        )}
+      </div>
+
+      {/* Agregar nuevo */}
+      <div className="rounded-2xl p-4" style={{ background: theme.cardBg, border: `1px solid ${theme.cardBorder}` }}>
+        <p className="font-body text-sm font-semibold mb-3" style={{ color: theme.textPrimary }}>Agregar al equipo</p>
+        <input value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="Nombre del barbero/estilista" className="font-body w-full text-sm rounded-xl px-3 py-2.5 mb-2 outline-none" style={inputStyle} />
+        <input value={newSpecialty} onChange={(e) => setNewSpecialty(e.target.value)} placeholder="Especialidad (opcional)" className="font-body w-full text-sm rounded-xl px-3 py-2.5 mb-3 outline-none" style={inputStyle} />
+        <button
+          onClick={addStaff}
+          disabled={addingStaff || !newName.trim()}
+          className="font-body w-full flex items-center justify-center gap-2 py-3 rounded-xl font-semibold disabled:opacity-50"
+          style={{ background: theme.chipBg, color: theme.accentRing, border: `1px solid ${theme.cardBorder}` }}
+        >
+          {addingStaff ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
+          {addingStaff ? "Agregando…" : "Agregar"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------
 // Panel principal
 // ---------------------------------------------------------------
 export default function OperationsPanel({
@@ -597,7 +901,7 @@ export default function OperationsPanel({
   const theme = getTheme(business.type);
   const isBarber = business.type === "barber";
 
-  const [view, setView] = useState<"dashboard" | "calendar" | "report" | "appointments">("dashboard");
+  const [view, setView] = useState<"dashboard" | "calendar" | "report" | "appointments" | "settings">("dashboard");
   const [appointments, setAppointments] = useState<ViewAppointment[]>(initialAppointments.map(toViewAppointment));
   const [notified, setNotified] = useState<string | null>(null);
   const [linkCopied, setLinkCopied] = useState(false);
@@ -690,53 +994,107 @@ export default function OperationsPanel({
             onResolve={handleResolve}
             onBack={() => setView("dashboard")}
           />
+        ) : view === "settings" ? (
+          <SettingsView
+            theme={theme}
+            business={business}
+            staff={staff}
+            onBack={() => setView("dashboard")}
+          />
         ) : (
           <>
-            <span className="font-body text-[11px] font-semibold tracking-wider" style={{ color: theme.accentRing }}>OPERACIONES</span>
-            <h1 className="font-display text-lg mt-0.5" style={{ color: theme.textPrimary }}>Tu negocio hoy</h1>
-
-            <div className="grid grid-cols-2 gap-3 mt-5">
-              <div className="rounded-2xl p-4" style={{ background: theme.cardBg, border: `1px solid ${theme.cardBorder}` }}>
-                <Users className="w-4 h-4 mb-2" style={{ color: theme.accentRing }} />
-                <p className="font-display text-2xl" style={{ color: theme.textPrimary }}>{clientsRegistered}</p>
-                <p className="font-body text-xs" style={{ color: theme.textMuted }}>Clientes registrados</p>
+            <div className="flex items-center justify-between">
+              <div>
+                <span className="font-body text-[11px] font-semibold tracking-wider" style={{ color: theme.accentRing }}>OPERACIONES</span>
+                <h1 className="font-display text-lg mt-0.5" style={{ color: theme.textPrimary }}>Tu negocio hoy</h1>
               </div>
-              <div className="rounded-2xl p-4" style={{ background: theme.cardBg, border: `1px solid ${theme.cardBorder}` }}>
-                <CalendarClock className="w-4 h-4 mb-2" style={{ color: theme.accentRing }} />
-                <p className="font-display text-2xl" style={{ color: theme.textPrimary }}>{appointments.length}</p>
-                <p className="font-body text-xs" style={{ color: theme.textMuted }}>Citas pendientes hoy</p>
+              <button
+                onClick={() => setView("settings")}
+                className="font-body flex items-center gap-1.5 text-xs font-medium px-3 py-2 rounded-lg shrink-0"
+                style={{ background: theme.chipBg, color: theme.accentRing, border: `1px solid ${theme.cardBorder}` }}
+              >
+                <Settings className="w-3.5 h-3.5" />
+                Editar negocio
+              </button>
+            </div>
+
+            {/* Métricas compactas en una sola fila para que quepa todo en una vista */}
+            <div className="flex items-stretch rounded-2xl mt-4 overflow-hidden" style={{ background: theme.cardBg, border: `1px solid ${theme.cardBorder}` }}>
+              <div className="flex-1 flex items-center gap-2.5 px-4 py-3">
+                <Users className="w-4 h-4 shrink-0" style={{ color: theme.accentRing }} />
+                <div className="min-w-0">
+                  <p className="font-display text-xl leading-none" style={{ color: theme.textPrimary }}>{clientsRegistered}</p>
+                  <p className="font-body text-[11px] mt-0.5" style={{ color: theme.textMuted }}>Clientes</p>
+                </div>
+              </div>
+              <div className="w-px my-3" style={{ background: theme.divider }} />
+              <div className="flex-1 flex items-center gap-2.5 px-4 py-3">
+                <CalendarClock className="w-4 h-4 shrink-0" style={{ color: theme.accentRing }} />
+                <div className="min-w-0">
+                  <p className="font-display text-xl leading-none" style={{ color: theme.textPrimary }}>{appointments.length}</p>
+                  <p className="font-body text-[11px] mt-0.5" style={{ color: theme.textMuted }}>Citas hoy</p>
+                </div>
               </div>
             </div>
 
-            <button
-              onClick={() => setView("calendar")}
-              className="w-full flex items-center gap-3 mt-4 p-4 rounded-2xl text-left"
-              style={{ background: theme.cardBg, border: `1px solid ${theme.cardBorder}` }}
-            >
-              <div className="w-11 h-11 rounded-xl flex items-center justify-center shrink-0" style={{ background: `linear-gradient(135deg, ${theme.accentFrom}, ${theme.accentTo})` }}>
-                <CalendarDays className="w-5 h-5" style={{ color: theme.buttonText }} />
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="font-body text-sm font-semibold" style={{ color: theme.textPrimary }}>Calendario</p>
-                <p className="font-body text-xs" style={{ color: theme.textMuted }}>Horarios y disponibilidad del equipo</p>
-              </div>
-              <ChevronRight className="w-4 h-4 shrink-0" style={{ color: theme.textMuted }} />
-            </button>
+            {/* Accesos en cuadrícula compacta: no crecen al sumar barberos */}
+            <div className="grid grid-cols-2 gap-2.5 mt-3">
+              <button
+                onClick={() => setView("appointments")}
+                className="flex flex-col items-start gap-2 p-3 rounded-2xl text-left"
+                style={{ background: theme.cardBg, border: `1px solid ${theme.cardBorder}` }}
+              >
+                <div className="w-9 h-9 rounded-lg flex items-center justify-center" style={{ background: `linear-gradient(135deg, ${theme.accentFrom}, ${theme.accentTo})` }}>
+                  <CalendarClock className="w-4 h-4" style={{ color: theme.buttonText }} />
+                </div>
+                <div>
+                  <p className="font-body text-sm font-semibold" style={{ color: theme.textPrimary }}>Citas de hoy</p>
+                  <p className="font-body text-[11px]" style={{ color: theme.textMuted }}>{appointments.length} por cotejar</p>
+                </div>
+              </button>
 
-            <button
-              onClick={() => setView("appointments")}
-              className="w-full flex items-center gap-3 mt-3 p-4 rounded-2xl text-left"
-              style={{ background: theme.cardBg, border: `1px solid ${theme.cardBorder}` }}
-            >
-              <div className="w-11 h-11 rounded-xl flex items-center justify-center shrink-0" style={{ background: `linear-gradient(135deg, ${theme.accentFrom}, ${theme.accentTo})` }}>
-                <CalendarClock className="w-5 h-5" style={{ color: theme.buttonText }} />
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="font-body text-sm font-semibold" style={{ color: theme.textPrimary }}>Citas de hoy</p>
-                <p className="font-body text-xs" style={{ color: theme.textMuted }}>{appointments.length} pendientes por cotejar</p>
-              </div>
-              <ChevronRight className="w-4 h-4 shrink-0" style={{ color: theme.textMuted }} />
-            </button>
+              <button
+                onClick={() => setView("calendar")}
+                className="flex flex-col items-start gap-2 p-3 rounded-2xl text-left"
+                style={{ background: theme.cardBg, border: `1px solid ${theme.cardBorder}` }}
+              >
+                <div className="w-9 h-9 rounded-lg flex items-center justify-center" style={{ background: `linear-gradient(135deg, ${theme.accentFrom}, ${theme.accentTo})` }}>
+                  <CalendarDays className="w-4 h-4" style={{ color: theme.buttonText }} />
+                </div>
+                <div>
+                  <p className="font-body text-sm font-semibold" style={{ color: theme.textPrimary }}>Calendario</p>
+                  <p className="font-body text-[11px]" style={{ color: theme.textMuted }}>Disponibilidad</p>
+                </div>
+              </button>
+
+              <button
+                onClick={() => setView("report")}
+                className="flex flex-col items-start gap-2 p-3 rounded-2xl text-left"
+                style={{ background: theme.cardBg, border: `1px solid ${theme.cardBorder}` }}
+              >
+                <div className="w-9 h-9 rounded-lg flex items-center justify-center" style={{ background: theme.chipBg }}>
+                  <BarChart3 className="w-4 h-4" style={{ color: theme.accentRing }} />
+                </div>
+                <div>
+                  <p className="font-body text-sm font-semibold" style={{ color: theme.textPrimary }}>Reporte</p>
+                  <p className="font-body text-[11px]" style={{ color: theme.textMuted }}>Ingresos por día</p>
+                </div>
+              </button>
+
+              <button
+                onClick={copyTvLink}
+                className="flex flex-col items-start gap-2 p-3 rounded-2xl text-left"
+                style={{ background: theme.cardBg, border: `1px solid ${tvCopied ? "#3FBF7F" : theme.cardBorder}` }}
+              >
+                <div className="w-9 h-9 rounded-lg flex items-center justify-center" style={{ background: theme.chipBg }}>
+                  <Tv className="w-4 h-4" style={{ color: theme.accentRing }} />
+                </div>
+                <div>
+                  <p className="font-body text-sm font-semibold" style={{ color: theme.textPrimary }}>Pantalla TV</p>
+                  <p className="font-body text-[11px]" style={{ color: tvCopied ? "#3FBF7F" : theme.textMuted }}>{tvCopied ? "Link copiado ✓" : "Copiar link"}</p>
+                </div>
+              </button>
+            </div>
 
             <button
               onClick={shareLink}
@@ -751,29 +1109,14 @@ export default function OperationsPanel({
               {linkCopied ? "Link copiado ✓" : "Compartir mi link"}
             </button>
 
-            <button
-              onClick={copyTvLink}
-              className="w-full flex items-center gap-3 mt-3 p-4 rounded-2xl text-left"
-              style={{ background: theme.cardBg, border: `1px solid ${tvCopied ? "#3FBF7F" : theme.cardBorder}` }}
-            >
-              <div className="w-11 h-11 rounded-xl flex items-center justify-center shrink-0" style={{ background: theme.chipBg }}>
-                <Tv className="w-5 h-5" style={{ color: theme.accentRing }} />
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="font-body text-sm font-semibold" style={{ color: theme.textPrimary }}>Pantalla para TV</p>
-                <p className="font-body text-xs" style={{ color: tvCopied ? "#3FBF7F" : theme.textMuted }}>
-                  {tvCopied ? "Link copiado ✓ — pégalo en el navegador de la TV" : "Copia el link y ábrelo una vez en la TV"}
-                </p>
-              </div>
-            </button>
-
             {staff.length > 0 && (
-              <div className="rounded-2xl p-4 mt-6" style={{ background: theme.cardBg, border: `1px solid ${theme.cardBorder}` }}>
-                <div className="flex items-center gap-2 mb-3">
+              <details className="rounded-2xl mt-3 group" style={{ background: theme.cardBg, border: `1px solid ${theme.cardBorder}` }}>
+                <summary className="flex items-center gap-2 px-4 py-3 cursor-pointer list-none">
                   <Bell className="w-3.5 h-3.5" style={{ color: theme.accentRing }} />
-                  <span className="font-body text-xs font-medium" style={{ color: theme.textMuted }}>Notificar disponibilidad</span>
-                </div>
-                <div className="space-y-2">
+                  <span className="font-body text-xs font-medium flex-1" style={{ color: theme.textMuted }}>Notificar disponibilidad</span>
+                  <ChevronRight className="w-4 h-4 transition-transform group-open:rotate-90" style={{ color: theme.textMuted }} />
+                </summary>
+                <div className="space-y-2 px-4 pb-4">
                   {staff.map((s) => (
                     <button
                       key={s.id}
@@ -788,17 +1131,8 @@ export default function OperationsPanel({
                     </button>
                   ))}
                 </div>
-              </div>
+              </details>
             )}
-
-            <button
-              onClick={() => setView("report")}
-              className="font-body w-full flex items-center justify-center gap-2 py-3.5 rounded-xl font-semibold mt-4"
-              style={{ background: theme.chipBg, color: theme.accentRing, border: `1px solid ${theme.cardBorder}` }}
-            >
-              <BarChart3 className="w-4 h-4" />
-              Reporte
-            </button>
           </>
         )}
       </div>
