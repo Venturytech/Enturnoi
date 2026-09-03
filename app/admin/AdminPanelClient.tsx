@@ -5,7 +5,7 @@ import Link from "next/link";
 import {
   Users, PauseCircle, CheckCircle2, XCircle, RefreshCw,
   Scissors, Flower2, LogOut, ChevronDown, Search,
-  DollarSign, CalendarCheck, Home,
+  DollarSign, CalendarCheck, Home, Phone, Check as CheckIcon,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { signOut } from "@/app/auth/actions";
@@ -213,6 +213,10 @@ export default function AdminPanelClient({ isSuperadmin, currentUserId }: { isSu
   const [detailById, setDetailById] = useState<Record<string, Detail | "loading">>({});
   const [roleBusyId, setRoleBusyId] = useState<string | null>(null);
 
+  const [contactPhone, setContactPhone] = useState("");
+  const [savingPhone, setSavingPhone] = useState(false);
+  const [phoneSaved, setPhoneSaved] = useState(false);
+
   async function load() {
     setLoading(true);
     const { data } = await supabase.rpc("admin_list_businesses");
@@ -220,8 +224,23 @@ export default function AdminPanelClient({ isSuperadmin, currentUserId }: { isSu
     setLoading(false);
   }
 
+  async function loadPhone() {
+    const { data } = await supabase.from("app_settings").select("value").eq("key", "contact_phone").maybeSingle();
+    setContactPhone(data?.value ?? "");
+  }
+
+  async function savePhone() {
+    setSavingPhone(true);
+    const { error } = await supabase.rpc("admin_set_contact_phone", { p_phone: contactPhone.trim() });
+    setSavingPhone(false);
+    if (error) { alert(error.message || "No se pudo guardar el teléfono."); return; }
+    setPhoneSaved(true);
+    setTimeout(() => setPhoneSaved(false), 2500);
+  }
+
   useEffect(() => {
     load();
+    if (isSuperadmin) loadPhone();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -313,6 +332,31 @@ export default function AdminPanelClient({ isSuperadmin, currentUserId }: { isSu
             Administrar mi negocio
           </Link>
         </div>
+
+        {/* Teléfono de contacto que verán los negocios suspendidos/en revisión */}
+        {isSuperadmin && (
+          <div className="rounded-2xl p-4 mt-4" style={{ background: "#141210", border: "1px solid #29231a" }}>
+            <div className="flex items-center gap-2 mb-2">
+              <Phone className="w-3.5 h-3.5" style={{ color: "#C9962C" }} />
+              <span className="font-body text-xs font-medium" style={{ color: "#c4b89f" }}>Teléfono de contacto</span>
+            </div>
+            <p className="font-body text-[11px] mb-3" style={{ color: "#6b6355" }}>Lo verán los negocios en revisión o suspendidos para escribirte. Puedes cambiarlo cuando quieras.</p>
+            <div className="flex gap-2">
+              <input
+                value={contactPhone}
+                onChange={(e) => setContactPhone(e.target.value)}
+                inputMode="tel"
+                placeholder="Ej. 809-000-0000"
+                className="font-body flex-1 text-sm rounded-xl px-3 py-2.5 outline-none"
+                style={{ background: "#0f0d0b", border: "1px solid #29231a", color: "#F3EBDA" }}
+              />
+              <button onClick={savePhone} disabled={savingPhone} className="font-body flex items-center justify-center gap-1.5 px-4 rounded-xl text-sm font-semibold disabled:opacity-50" style={{ background: phoneSaved ? "#173a2a" : "#C9962C", color: phoneSaved ? "#7BE3AB" : "#0A0806" }}>
+                {phoneSaved ? <CheckIcon className="w-4 h-4" /> : null}
+                {savingPhone ? "…" : phoneSaved ? "Guardado" : "Guardar"}
+              </button>
+            </div>
+          </div>
+        )}
 
         <button onClick={load} disabled={loading} className="font-body w-full flex items-center justify-center gap-2 mt-4 py-3 rounded-xl text-sm font-medium disabled:opacity-50" style={{ background: "#141210", border: "1px solid #29231a", color: "#c4b89f" }}>
           <RefreshCw className={`w-4 h-4 ${loading ? "animate-spin" : ""}`} />

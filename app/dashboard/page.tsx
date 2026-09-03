@@ -66,10 +66,17 @@ export default async function DashboardPage() {
   if (business.status !== "active") {
     const theme = getTheme(business.type);
     const pending = business.status === "pending";
+    const { data: cp } = await supabase
+      .from("app_settings")
+      .select("value")
+      .eq("key", "contact_phone")
+      .maybeSingle();
+    const contactPhone = (cp?.value ?? "").trim();
+    const waPhone = contactPhone.replace(/[^0-9]/g, "");
     return (
-      <main className="min-h-screen w-full flex items-center" style={{ background: theme.pageBg }}>
-        <div className="px-5 py-8 max-w-sm mx-auto w-full text-center">
-          <div className="w-14 h-14 rounded-2xl mx-auto mb-4 flex items-center justify-center" style={{ background: theme.chipBg }}>
+      <main className="min-h-screen w-full flex items-center justify-center px-5 py-8" style={{ background: theme.pageBg }}>
+        <div className="w-full max-w-sm mx-auto text-center flex flex-col items-center">
+          <div className="w-14 h-14 rounded-2xl mb-4 flex items-center justify-center" style={{ background: theme.chipBg }}>
             <span className="font-display text-2xl" style={{ color: theme.accentRing }}>{pending ? "⏳" : "⏸"}</span>
           </div>
           <h1 className="font-display text-2xl mb-2" style={{ color: theme.textPrimary }}>
@@ -77,11 +84,25 @@ export default async function DashboardPage() {
           </h1>
           <p className="font-body text-sm mb-6" style={{ color: theme.textMuted }}>
             {pending
-              ? "Ya recibimos tu registro. El equipo de EnTurnoApp activará tu cuenta muy pronto. Vuelve a entrar en un rato."
-              : "Tu cuenta fue pausada. Escríbenos para reactivarla."}
+              ? "Ya recibimos tu registro. El equipo de EnTurnoApp activará tu cuenta muy pronto."
+              : "Tu cuenta fue pausada."}
+            {contactPhone ? " Escríbenos para reactivarla:" : ""}
           </p>
-          <form action={signOut}>
-            <button className="font-body inline-flex items-center justify-center gap-2 py-3 px-5 rounded-xl font-semibold" style={{ background: theme.chipBg, color: theme.accentRing, border: `1px solid ${theme.cardBorder}` }}>
+
+          {contactPhone && (
+            <a
+              href={`https://wa.me/${waPhone}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="font-body w-full inline-flex items-center justify-center gap-2 py-3.5 rounded-xl font-semibold mb-3"
+              style={{ background: `linear-gradient(135deg, ${theme.accentFrom}, ${theme.accentTo})`, color: theme.buttonText }}
+            >
+              📞 Contactar: {contactPhone}
+            </a>
+          )}
+
+          <form action={signOut} className="w-full">
+            <button className="font-body w-full inline-flex items-center justify-center gap-2 py-3 px-5 rounded-xl font-semibold" style={{ background: theme.chipBg, color: theme.accentRing, border: `1px solid ${theme.cardBorder}` }}>
               Cerrar sesión
             </button>
           </form>
