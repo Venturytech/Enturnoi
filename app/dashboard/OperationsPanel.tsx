@@ -1139,6 +1139,71 @@ function QrPosterView({
 }
 
 // ---------------------------------------------------------------
+// Pantalla para TV: muestra el link de la TV en GRANDE (negro sobre
+// blanco) porque casi siempre hay que escribirlo a mano en el
+// navegador del televisor. También se puede copiar.
+// ---------------------------------------------------------------
+function TvLinkView({
+  theme,
+  tvUrl,
+  onBack,
+}: {
+  theme: Theme;
+  tvUrl: string;
+  onBack: () => void;
+}) {
+  const [copied, setCopied] = useState(false);
+  const displayUrl = tvUrl.replace(/^https?:\/\//, "");
+
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(tvUrl);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2500);
+    } catch {
+      // no-op
+    }
+  };
+
+  return (
+    <div>
+      <button
+        onClick={onBack}
+        className="font-body flex w-fit items-center gap-1.5 text-sm font-medium mb-5 px-3 py-1.5 rounded-full"
+        style={{ color: theme.accentRing, border: `1px solid ${theme.accentRing}` }}
+      >
+        <ChevronLeft className="w-4 h-4" />
+        Volver a operaciones
+      </button>
+
+      <span className="font-body text-[11px] font-semibold tracking-wider" style={{ color: theme.accentRing }}>PANTALLA TV</span>
+      <h1 className="font-display text-2xl mb-1" style={{ color: theme.textPrimary }}>Link para la televisión</h1>
+      <p className="font-body text-sm mb-5" style={{ color: theme.textMuted }}>Escribe este link en el navegador de la TV. Ábrelo una sola vez y ahí queda la cola en vivo. También puedes copiarlo.</p>
+
+      {/* Link en grande, negro sobre blanco, fácil de escribir */}
+      <div className="rounded-3xl p-6" style={{ background: "#ffffff", border: `1px solid ${theme.cardBorder}` }}>
+        <p className="font-body text-xs font-semibold tracking-wider mb-3 text-center" style={{ color: "#888" }}>ESCRIBE ESTO EN LA TV</p>
+        <p
+          className="text-center"
+          style={{ color: "#111", fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace", fontSize: 24, fontWeight: 700, lineHeight: 1.35, wordBreak: "break-all" }}
+        >
+          {displayUrl}
+        </p>
+      </div>
+
+      <button
+        onClick={copy}
+        className="font-body w-full flex items-center justify-center gap-2 py-3.5 rounded-xl font-semibold mt-5"
+        style={{ background: copied ? "rgba(63,191,127,0.16)" : `linear-gradient(135deg, ${theme.accentFrom}, ${theme.accentTo})`, color: copied ? "#3FBF7F" : theme.buttonText, border: copied ? "1px solid #3FBF7F" : "none" }}
+      >
+        {copied ? <CheckIcon className="w-4 h-4" /> : <Share2 className="w-4 h-4" />}
+        {copied ? "Link copiado ✓" : "Copiar link"}
+      </button>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------
 // Panel principal
 // ---------------------------------------------------------------
 export default function OperationsPanel({
@@ -1162,11 +1227,10 @@ export default function OperationsPanel({
   const theme = getTheme(business.type);
   const isBarber = business.type === "barber";
 
-  const [view, setView] = useState<"dashboard" | "calendar" | "report" | "appointments" | "settings" | "qr" | "notify">("dashboard");
+  const [view, setView] = useState<"dashboard" | "calendar" | "report" | "appointments" | "settings" | "qr" | "notify" | "tv">("dashboard");
   const [appointments, setAppointments] = useState<ViewAppointment[]>(initialAppointments.map(toViewAppointment));
   const [notified, setNotified] = useState<string | null>(null);
   const [linkCopied, setLinkCopied] = useState(false);
-  const [tvCopied, setTvCopied] = useState(false);
 
   const inviteUrl =
     typeof window !== "undefined" ? `${window.location.origin}/r/${business.invite_slug}` : "";
@@ -1183,16 +1247,6 @@ export default function OperationsPanel({
       // Si el navegador bloquea el portapapeles, igual abrimos WhatsApp con el link.
     }
     window.open(`https://wa.me/?text=${encodeURIComponent(message)}`, "_blank");
-  };
-
-  const copyTvLink = async () => {
-    try {
-      await navigator.clipboard.writeText(tvUrl);
-      setTvCopied(true);
-      setTimeout(() => setTvCopied(false), 2500);
-    } catch {
-      // no-op
-    }
   };
 
   const handleResolve = async (id: string, attended: boolean) => {
@@ -1298,6 +1352,8 @@ export default function OperationsPanel({
               </div>
             )}
           </div>
+        ) : view === "tv" ? (
+          <TvLinkView theme={theme} tvUrl={tvUrl} onBack={() => setView("dashboard")} />
         ) : view === "qr" ? (
           <QrPosterView
             theme={theme}
@@ -1423,12 +1479,12 @@ export default function OperationsPanel({
             </button>
 
             <button
-              onClick={copyTvLink}
+              onClick={() => setView("tv")}
               className="font-body w-full flex items-center justify-center gap-2 mt-3 py-3 rounded-xl font-semibold"
-              style={{ background: theme.chipBg, color: tvCopied ? "#3FBF7F" : theme.accentRing, border: `1px solid ${tvCopied ? "#3FBF7F" : theme.cardBorder}` }}
+              style={{ background: theme.chipBg, color: theme.accentRing, border: `1px solid ${theme.cardBorder}` }}
             >
-              {tvCopied ? <CheckIcon className="w-4 h-4" /> : <Tv className="w-4 h-4" />}
-              {tvCopied ? "Link de TV copiado ✓" : "Pantalla para TV"}
+              <Tv className="w-4 h-4" />
+              Pantalla para TV
             </button>
 
             <button
