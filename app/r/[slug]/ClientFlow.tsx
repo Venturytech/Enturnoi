@@ -394,14 +394,33 @@ function MyBusinesses({
 // el botón empezará a abrir la tienda correcta según el dispositivo.
 // Para ocultarlo por completo: APP_STORE.enabled = false.
 // ---------------------------------------------------------------
+const APP_DOWNLOADED_KEY = "enturnoi:app-descargada";
+
 function AppDownloadCta({ theme }: { theme: ReturnType<typeof getTheme> }) {
   const [cta, setCta] = useState<{ platform: "ios" | "android" | "other"; url: string } | null>(null);
+  // Una vez que el cliente toca "Descarga la app", lo recordamos en su
+  // dispositivo y el botón no le vuelve a salir.
+  const [downloaded, setDownloaded] = useState(false);
 
   useEffect(() => {
+    try {
+      if (localStorage.getItem(APP_DOWNLOADED_KEY) === "1") setDownloaded(true);
+    } catch {
+      /* almacenamiento bloqueado: mostramos el botón normalmente */
+    }
     setCta(appDownloadCta());
   }, []);
 
-  if (!cta) return null;
+  function markDownloaded() {
+    try {
+      localStorage.setItem(APP_DOWNLOADED_KEY, "1");
+    } catch {
+      /* si no se puede guardar, al menos se oculta en esta sesión */
+    }
+    setDownloaded(true);
+  }
+
+  if (!cta || downloaded) return null;
 
   const isIos = cta.platform === "ios";
   const label = isIos
@@ -414,18 +433,18 @@ function AppDownloadCta({ theme }: { theme: ReturnType<typeof getTheme> }) {
     "font-body w-full flex items-center justify-center gap-2 mt-4 py-3.5 rounded-xl font-semibold";
   const style = { background: theme.chipBg, color: theme.accentRing, border: `1px solid ${theme.cardBorder}` };
 
-  // Con link real -> abre la tienda. Sin link (modo prueba) -> se ve
-  // igual pero no navega a ningún lado.
+  // Con link real -> abre la tienda y se marca como descargada. Sin link
+  // (modo prueba) -> se ve igual pero solo la marca como descargada.
   if (cta.url) {
     return (
-      <a href={cta.url} target="_blank" rel="noopener noreferrer" className={className} style={style}>
+      <a href={cta.url} target="_blank" rel="noopener noreferrer" onClick={markDownloaded} className={className} style={style}>
         {icon}
         {label}
       </a>
     );
   }
   return (
-    <button type="button" onClick={(e) => e.preventDefault()} className={className} style={style}>
+    <button type="button" onClick={markDownloaded} className={className} style={style}>
       {icon}
       {label}
     </button>
