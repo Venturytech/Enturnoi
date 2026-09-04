@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Scissors, Flower2, ArrowRight, ShieldCheck, ChevronLeft, ChevronRight,
-  Clock, Users, CalendarDays, Check, Lock, Smartphone, Apple, Store,
+  Clock, Users, CalendarDays, Check, Lock, Smartphone, Apple, Store, MapPin, X,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { getTheme, cardShadow, type BusinessType } from "@/lib/theme";
@@ -20,6 +20,9 @@ type Business = {
   close_time: string | null;
   break_start: string | null;
   break_end: string | null;
+  latitude: number | null;
+  longitude: number | null;
+  geofence_radius_m: number | null;
 };
 type Staff = { id: string; name: string; specialty: string | null };
 type ServiceOption = { business_service_id: string; service_name: string; price: number; duration_minutes: number };
@@ -123,6 +126,7 @@ export default function ClientFlow({ slug, business }: { slug: string; business:
   const [myBusinesses, setMyBusinesses] = useState<ClientBusiness[]>([]);
   const [selectedStaff, setSelectedStaff] = useState<Staff | null>(null);
   const [lastConfirmed, setLastConfirmed] = useState<Summary | null>(null);
+  const [arrivalMsg, setArrivalMsg] = useState<string | null>(null);
 
   useEffect(() => {
     const idn = getIdentity(slug);
@@ -163,6 +167,59 @@ export default function ClientFlow({ slug, business }: { slug: string; business:
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [identity, slug]);
+
+  // Llegada automática: si el negocio tiene ubicación y el cliente está
+  // dentro del radio (con permiso de ubicación), entra en cola solo. El
+  // servidor decide barbero (preferido / menor espera), servicio y evita
+  // duplicados. Se intenta una sola vez al día por negocio para no repetir
+  // el permiso ni molestar. En la app nativa esto corre con la app cerrada.
+  useEffect(() => {
+    if (!identity) return;
+    if (business.latitude == null || business.longitude == null) return;
+    if (typeof navigator === "undefined" || !navigator.geolocation) return;
+    const today = new Date().toISOString().slice(0, 10);
+    const guardKey = `enturnoi:arrival:${business.id}:${today}`;
+    try {
+      if (localStorage.getItem(guardKey) === "1") return;
+    } catch {
+      /* almacenamiento bloqueado: seguimos igual */
+    }
+    let cancelled = false;
+    navigator.geolocation.getCurrentPosition(
+      async (pos) => {
+        if (cancelled) return;
+        // Aseguramos la pertenencia al negocio antes de intentar la cola.
+        await supabase.rpc("client_join_business", { p_client_id: identity.clientId, p_slug: slug });
+        const { data } = await supabase.rpc("auto_checkin_walkin", {
+          p_slug: slug,
+          p_client_id: identity.clientId,
+          p_lat: pos.coords.latitude,
+          p_lng: pos.coords.longitude,
+        });
+        if (cancelled) return;
+        const res = data as { ok?: boolean; reason?: string; staff_name?: string } | null;
+        // Lejos / cerrado / etc.: silencio y se reintenta en otra visita.
+        if (!res?.ok) return;
+        try {
+          localStorage.setItem(guardKey, "1");
+        } catch {
+          /* ignore */
+        }
+        if (res.reason === "checked_in") {
+          setArrivalMsg(res.staff_name ? `Te pusimos en cola con ${res.staff_name}.` : "Te pusimos en cola.");
+        }
+        loadData();
+      },
+      () => {
+        /* permiso denegado o sin señal: silencio */
+      },
+      { enableHighAccuracy: true, timeout: 12000, maximumAge: 60000 },
+    );
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [identity, business.id]);
 
   // Carga inicial + se mantiene al día: realtime sobre las citas del
   // negocio y un refresco de respaldo cada 15s (por si el realtime cae).
@@ -218,6 +275,19 @@ export default function ClientFlow({ slug, business }: { slug: string; business:
         .font-body { font-family: 'Inter', sans-serif; }
       `}</style>
       <div className="w-full max-w-sm">
+        {arrivalMsg && (
+          <div className="mb-4 rounded-2xl p-4 flex items-start justify-between gap-3" style={{ background: "rgba(63,191,127,0.14)", border: "1px solid #3FBF7F" }}>
+            <div className="min-w-0">
+              <p className="font-body text-[11px] font-semibold tracking-wider flex items-center gap-1" style={{ color: "#3FBF7F" }}>
+                <MapPin className="w-3 h-3" /> LLEGASTE A {business.name.toUpperCase()}
+              </p>
+              <p className="font-body text-sm mt-0.5" style={{ color: theme.textPrimary }}>{arrivalMsg}</p>
+            </div>
+            <button onClick={() => setArrivalMsg(null)} className="shrink-0" style={{ color: theme.textMuted }} aria-label="Cerrar">
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        )}
         {view === "detail" && selectedStaff && (
           <QueueDetail
             theme={theme}
