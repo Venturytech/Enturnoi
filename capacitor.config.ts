@@ -10,8 +10,10 @@ import type { CapacitorConfig } from "@capacitor/cli";
 const config: CapacitorConfig = {
   appId: "com.venturytech.enturnoi",
   appName: "EnTurnoApp",
-  // Carpeta de recursos web locales (splash/estáticos que empaqueta Capacitor).
-  webDir: "public",
+  // Carpeta de recursos web locales que empaqueta Capacitor. Como la app
+  // carga el sitio real vía server.url, esta carpeta solo lleva una página
+  // de respaldo (se ve únicamente si el sitio no está accesible al abrir).
+  webDir: "www",
   server: {
     // La app carga el sitio en producción. Cuando exista un dominio propio
     // (ej. app.enturnoi.com) se cambia aquí.

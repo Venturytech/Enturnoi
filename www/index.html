@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>EnTurnoApp</title>
+    <style>
+      html, body {
+        margin: 0;
+        height: 100%;
+        background: #0f0d0b;
+        color: #e9e2d8;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        text-align: center;
+      }
+      .box { padding: 24px; }
+      h1 { font-size: 22px; margin: 0 0 6px; }
+      p { font-size: 14px; opacity: 0.7; margin: 0 0 20px; }
+      .spinner {
+        width: 34px; height: 34px; margin: 0 auto;
+        border: 3px solid rgba(255,255,255,0.15);
+        border-top-color: #d9a441;
+        border-radius: 50%;
+        animation: spin 0.9s linear infinite;
+      }
+      @keyframes spin { to { transform: rotate(360deg); } }
+    </style>
+  </head>
+  <body>
+    <div class="box">
+      <div class="spinner"></div>
+      <h1>EnTurnoApp</h1>
+      <p>Cargando…</p>
+    </div>
+    <script>
+      // La app normalmente carga el sitio en producción (server.url en la
+      // config de Capacitor). Esta página solo aparece como respaldo; si se
+      // muestra, intentamos abrir el sitio real.
+      setTimeout(function () {
+        location.href = "https://enturnoi-venturytech.vercel.app";
+      }, 1200);
+    </script>
+  </body>
+</html>
