@@ -7,7 +7,7 @@ import {
   CalendarDays, ChevronLeft, ChevronRight, Ban, CheckCheck,
   Bell, BarChart3, DollarSign, Share2, Check as CheckIcon, Tv,
   Settings, Plus, Trash2, ImagePlus, Loader2, Save, UserRound,
-  QrCode, Printer, Download, Shield, MessageCircle, Search, Phone,
+  QrCode, Printer, Download, Shield, MessageCircle, Search, Phone, MapPin,
 } from "lucide-react";
 import { QRCodeCanvas } from "qrcode.react";
 import { createClient } from "@/lib/supabase/client";
@@ -18,7 +18,7 @@ import { hoursFromBusiness, buildDaySlots, displayHm, HALF_HOUR_OPTIONS } from "
 // ---------------------------------------------------------------
 // Tipos
 // ---------------------------------------------------------------
-type Business = { id: string; name: string; type: BusinessType; status: string; logo_url: string | null; invite_slug: string; phone: string | null; address: string | null; open_time: string | null; close_time: string | null; break_start: string | null; break_end: string | null };
+type Business = { id: string; name: string; type: BusinessType; status: string; logo_url: string | null; invite_slug: string; phone: string | null; address: string | null; latitude: number | null; longitude: number | null; open_time: string | null; close_time: string | null; break_start: string | null; break_end: string | null };
 type Staff = { id: string; name: string; specialty: string | null; photo_url: string | null };
 type CatalogItem = { id: string; category: string; name: string };
 type BusinessService = { catalog_service_id: string; price: number };
@@ -636,6 +636,30 @@ function SettingsView({
   const [phone, setPhone] = useState(business.phone ?? "");
   const [address, setAddress] = useState(business.address ?? "");
   const [logoUrl, setLogoUrl] = useState<string | null>(business.logo_url);
+
+  // Ubicación GPS del local (para la llegada automática del cliente).
+  const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(
+    business.latitude != null && business.longitude != null
+      ? { lat: business.latitude, lng: business.longitude }
+      : null,
+  );
+  const [geoStatus, setGeoStatus] = useState<"idle" | "loading" | "error">("idle");
+
+  function captureLocation() {
+    if (typeof navigator === "undefined" || !navigator.geolocation) {
+      setGeoStatus("error");
+      return;
+    }
+    setGeoStatus("loading");
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        setCoords({ lat: pos.coords.latitude, lng: pos.coords.longitude });
+        setGeoStatus("idle");
+      },
+      () => setGeoStatus("error"),
+      { enableHighAccuracy: true, timeout: 12000, maximumAge: 0 },
+    );
+  }
   const [savingBiz, setSavingBiz] = useState(false);
   const [bizSaved, setBizSaved] = useState(false);
   const [uploadingLogo, setUploadingLogo] = useState(false);
@@ -774,6 +798,8 @@ function SettingsView({
         name: name.trim(),
         phone: phone.trim() || null,
         address: address.trim() || null,
+        latitude: coords?.lat ?? null,
+        longitude: coords?.lng ?? null,
         logo_url: logoUrl,
         open_time: openTime,
         close_time: closeTime,
@@ -911,7 +937,42 @@ function SettingsView({
         <input value={phone} onChange={(e) => setPhone(e.target.value)} inputMode="tel" placeholder="Ej. 809-000-0000" className="font-body w-full text-sm rounded-xl px-3 py-2.5 mb-3 outline-none" style={inputStyle} />
 
         <label className="font-body text-xs font-medium block mb-1" style={{ color: theme.textMuted }}>Dirección</label>
-        <input value={address} onChange={(e) => setAddress(e.target.value)} placeholder="Ej. Calle 1, Santiago" className="font-body w-full text-sm rounded-xl px-3 py-2.5 mb-4 outline-none" style={inputStyle} />
+        <input value={address} onChange={(e) => setAddress(e.target.value)} placeholder="Ej. Calle 1, Santiago" className="font-body w-full text-sm rounded-xl px-3 py-2.5 mb-3 outline-none" style={inputStyle} />
+
+        {/* Ubicación GPS del local (para llegada automática del cliente) */}
+        <label className="font-body text-xs font-medium block mb-1" style={{ color: theme.textMuted }}>Ubicación en el mapa</label>
+        <button
+          type="button"
+          onClick={captureLocation}
+          className="font-body w-full text-sm flex items-center justify-center gap-2 rounded-xl px-3 py-2.5 font-semibold"
+          style={{ background: theme.chipBg, border: `1px solid ${theme.cardBorder}`, color: theme.accentRing }}
+        >
+          <MapPin className="w-4 h-4" />
+          {geoStatus === "loading"
+            ? "Obteniendo ubicación…"
+            : coords
+              ? "Actualizar ubicación del local"
+              : "Usar la ubicación del local"}
+        </button>
+        <p className="font-body text-xs mt-1.5 mb-1" style={{ color: coords ? "#3FBF7F" : theme.textMuted }}>
+          {geoStatus === "error"
+            ? "No se pudo obtener la ubicación. Actívala en tu navegador e intenta de nuevo."
+            : coords
+              ? "✓ Ubicación guardada. Párate en la barbería al tocar el botón para más precisión."
+              : "Párate dentro de la barbería y toca el botón para marcarla. Sirve para que el cliente entre en cola solo al llegar."}
+        </p>
+        {coords && (
+          <a
+            href={`https://www.google.com/maps/search/?api=1&query=${coords.lat},${coords.lng}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="font-body text-xs underline mb-4 inline-block"
+            style={{ color: theme.accentRing }}
+          >
+            Ver en el mapa
+          </a>
+        )}
+        {!coords && <div className="mb-4" />}
 
         {/* Horario de atención */}
         <div className="h-px w-full mb-4" style={{ background: theme.divider }} />

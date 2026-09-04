@@ -2,7 +2,7 @@
 
 import { useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Upload, Plus, X, Check, ArrowRight, ChevronDown } from "lucide-react";
+import { Upload, Plus, X, Check, ArrowRight, ChevronDown, MapPin } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { getTheme, cardShadow, type BusinessType } from "@/lib/theme";
 
@@ -45,6 +45,25 @@ export default function OnboardingForm({
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
   const [address, setAddress] = useState("");
+  // Ubicación GPS del local (para la llegada automática del cliente).
+  const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(null);
+  const [geoStatus, setGeoStatus] = useState<"idle" | "loading" | "error">("idle");
+
+  function captureLocation() {
+    if (typeof navigator === "undefined" || !navigator.geolocation) {
+      setGeoStatus("error");
+      return;
+    }
+    setGeoStatus("loading");
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        setCoords({ lat: pos.coords.latitude, lng: pos.coords.longitude });
+        setGeoStatus("idle");
+      },
+      () => setGeoStatus("error"),
+      { enableHighAccuracy: true, timeout: 12000, maximumAge: 0 },
+    );
+  }
   const [staffNames, setStaffNames] = useState<string[]>(["", ""]);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [prices, setPrices] = useState<Record<string, string>>({});
@@ -118,6 +137,8 @@ export default function OnboardingForm({
           type: businessType,
           phone: phone.trim() || null,
           address: address.trim() || null,
+          latitude: coords?.lat ?? null,
+          longitude: coords?.lng ?? null,
           staff_count: cleanStaffNames.length,
           invite_slug: slug,
           // Nuevo: entra en revisión; el superadmin lo activa desde el Panel Maestro.
@@ -268,6 +289,38 @@ export default function OnboardingForm({
               className="font-body w-full mt-2 px-4 py-3 rounded-xl outline-none"
               style={{ background: theme.inputBg, border: `1px solid ${theme.inputBorder}`, color: theme.textPrimary }}
             />
+
+            <button
+              type="button"
+              onClick={captureLocation}
+              className="font-body w-full mt-3 flex items-center justify-center gap-2 px-4 py-3 rounded-xl font-semibold"
+              style={{ background: theme.chipBg, border: `1px solid ${theme.inputBorder}`, color: theme.accentRing }}
+            >
+              <MapPin className="w-4 h-4" />
+              {geoStatus === "loading"
+                ? "Obteniendo ubicación…"
+                : coords
+                  ? "Actualizar ubicación del local"
+                  : "Usar la ubicación del local"}
+            </button>
+            <p className="font-body text-xs mt-2" style={{ color: coords ? theme.green : theme.textMuted }}>
+              {geoStatus === "error"
+                ? "No se pudo obtener la ubicación. Actívala en tu navegador e intenta de nuevo."
+                : coords
+                  ? "✓ Ubicación guardada. Párate en la barbería al tocar el botón para más precisión."
+                  : "Párate dentro de la barbería y toca el botón para marcar su ubicación en el mapa."}
+            </p>
+            {coords && (
+              <a
+                href={`https://www.google.com/maps/search/?api=1&query=${coords.lat},${coords.lng}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="font-body text-xs underline mt-1 inline-block"
+                style={{ color: theme.accentRing }}
+              >
+                Ver en el mapa
+              </a>
+            )}
           </div>
 
           <div className="h-px w-full mb-6" style={{ background: theme.divider }} />
